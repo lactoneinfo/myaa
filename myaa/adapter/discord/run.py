@@ -3,6 +3,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from myaa.data.cache import AgentStateCache
+from myaa.logic.domain.state import AgentState
 from myaa.logic.orchestrator import Orchestrator
 from myaa.logic.domain.message import Message
 
@@ -34,22 +35,26 @@ class MyaaBot(discord.Client):
                 reply = await orchestrator.run(session_key, message)
                 await discord_message.channel.send(reply.to_display_text())
 
-            elif content == "!state" and DEBUG_MODE:
-                states = [s.id for s in await cache.list()]
-                await message.channel.send(f"cached AS: {states}")
-
             elif content == "!dump" and DEBUG_MODE:
-                states = await cache.list()
+                states: list[AgentState] = await cache.list()
                 print(cache._session_map)
                 print(cache._store.keys())
                 lines = []
                 for s in states:
                     lines.append(f"ID: {s.id} | status: {s.status}")
+
+                    if s.context.message is None:
+                        lines.append("  msg: [No message]")
+                        lines.append("  mem: []")
+                        lines.append("")
+                        continue
+
                     lines.append(f"  msg: {s.context.message.to_display_text()}")
                     lines.append(
                         f"  mem: {[m.to_display_text() for m in s.context.thread_memory]}"
                     )
                     lines.append("")
+
                 await discord_message.channel.send(
                     "```" + "\n".join(lines)[:1900] + "```"
                 )
@@ -62,6 +67,8 @@ async def main():
     intents = discord.Intents.default()
     intents.message_content = True
     client = MyaaBot(intents=intents)
+    if TOKEN is None:
+        raise ValueError("DISCORD_BOT_TOKEN not found in environment.")
     await client.start(TOKEN)
 
 

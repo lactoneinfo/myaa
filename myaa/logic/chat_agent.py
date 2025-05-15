@@ -8,7 +8,8 @@ class ChatAgent:
 
     async def generate(self, as_id: str) -> Message:
         state = await self.cache.get(as_id)
-        if state is None:
-            return Message(speaker="assistant", content="[ERROR] state not found")
+        assert state is not None, f"AgentState not found for {as_id}"
+        assert state.context.message is not None, "Current message must not be None"
+
         text = state.context.message.content
         return Message(speaker="assistant", content=text)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 import time
-from typing import Dict, Optional, Iterable
+from typing import Dict, Optional, List
 from myaa.logic.domain.state import AgentState
 
 _TTL = 60 * 30  # 30 min
@@ -34,7 +34,7 @@ class AgentStateCache:
         async with self._lock:
             self._session_map[session_key] = as_id
 
-    async def list(self) -> Iterable[AgentState]:
+    async def list(self) -> List[AgentState]:
         async with self._lock:
             return list(self._store.values())
 

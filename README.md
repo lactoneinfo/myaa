@@ -53,7 +53,11 @@ python dev.py lint           # Run ruff linter
 python dev.py fix            # Auto-fix lint issues (ruff --fix)
 python dev.py format         # Format code using black
 python dev.py check-format   # Check format without modifying
+python dev.py typecheck      # Run mypy type checker
 python dev.py test           # Run pytest
+
+# Recommended before commit:
+python dev.py check-all      # Run lint, format-check, and typecheck in one shot
 
 💡 Debug commands (e.g., `!dump`) are only available if you define `DEBUG_MODE=1` in your .env file.
 ⚠️ This variable is not included in `.env.example` by design, to prevent accidental exposure of sensitive internal state.
