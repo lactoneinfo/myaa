@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from functools import lru_cache
 
+CHARACTER_ROOT = Path("myaa/resources/characters")
+
 
 @dataclass
 class Character:
@@ -12,7 +14,7 @@ class Character:
 
 
 @lru_cache(maxsize=None)
-def load_character(id: str, config_dir: Path = Path("config/characters")) -> Character:
+def load_character(id: str, config_dir: Path = CHARACTER_ROOT) -> Character:
     path = config_dir / f"{id}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Character config not found: {path}")
@@ -30,13 +32,15 @@ def load_character(id: str, config_dir: Path = Path("config/characters")) -> Cha
     )
 
 
-def available_characters(config_dir: Path = Path("config/characters")) -> list[str]:
+def available_characters(
+    config_dir: Path = CHARACTER_ROOT,
+) -> list[str]:
     return [
         path.stem for path in config_dir.glob("*.yaml") if not path.name.startswith("_")
     ]
 
 
-def get_display_name(char_id: str, config_dir=Path("config/characters")) -> str:
+def get_display_name(char_id: str, config_dir=CHARACTER_ROOT) -> str:
     try:
         char = load_character(char_id, config_dir)
         return char.name

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List
 from myaa.logic.domain.state import AgentState
 from myaa.logic.domain.character import load_character
+from myaa.config.prompt_defaults import PROMPT_DEFAULTS
 
 
 @dataclass
@@ -17,8 +18,10 @@ class PromptFormatter:
     def format(state: AgentState) -> LLMPrompt:
         char = load_character(state.responder_id)
 
-        role_instruction = f"You are an playing the role of '{char.name}'.\n"
-        format_instruction = "The reply must be in Japanese.\n"
+        role_instruction = PROMPT_DEFAULTS["role_instruction"].format(
+            char_name=char.name
+        )
+        format_instruction = PROMPT_DEFAULTS["format_instruction"]
         responder_description = char.description.strip()
 
         dialogue_lines = []
