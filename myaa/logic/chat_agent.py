@@ -1,21 +1,16 @@
-from myaa.data.cache import AgentStateCache
 from myaa.logic.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import PromptFormatter
+from myaa.logic.provider.base import get_provider
 
 
 class ChatAgent:
-    def __init__(self, cache: AgentStateCache):
+    def __init__(self, cache):
         self.cache = cache
+        self.provider = get_provider()
 
     async def generate(self, as_id: str) -> Message:
         state = await self.cache.get(as_id)
-        assert state is not None, f"AgentState not found for {as_id}"
+        assert state is not None
 
         prompt = PromptFormatter.format(state)
-
-        prompt_text = "\n".join(f"[{m['role']}] {m['content']}" for m in prompt)
-
-        return Message(
-            speaker=state.character_name,
-            content=f"{prompt_text}",
-        )
+        return await self.provider.chat(prompt, character_name=state.character_name)
