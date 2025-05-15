@@ -1,4 +1,4 @@
-from myaa.logic.domain.message import Message
+from myaa.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import PromptFormatter
 from myaa.logic.provider.base import get_provider
 

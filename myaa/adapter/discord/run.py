@@ -3,11 +3,11 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from myaa.data.cache import AgentStateCache
-from myaa.logic.domain.state import AgentState
+from myaa.domain.state import AgentState
 from myaa.logic.orchestrator import Orchestrator
-from myaa.logic.domain.message import Message
-from myaa.logic.domain.character import available_characters, get_display_name
-from myaa.logic.domain.command import ChatCommand
+from myaa.domain.message import Message
+from myaa.domain.character import available_characters, get_display_name
+from myaa.domain.command import ChatCommand
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")

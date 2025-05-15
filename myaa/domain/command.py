@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from myaa.logic.domain.message import Message
+from myaa.domain.message import Message
 
 
 @dataclass

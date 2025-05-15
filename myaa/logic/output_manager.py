@@ -1,6 +1,6 @@
 from myaa.data.cache import AgentStateCache
-from myaa.logic.domain.state import Status
-from myaa.logic.domain.message import Message
+from myaa.domain.state import Status
+from myaa.domain.message import Message
 
 
 class OutputManager:

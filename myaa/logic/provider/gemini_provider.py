@@ -1,8 +1,8 @@
 import os
-from myaa.logic.domain.message import Message
+from myaa.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import LLMPrompt
 from myaa.logic.provider.abstract import LLMProvider
-from myaa.logic.domain.character import get_display_name
+from myaa.domain.character import get_display_name
 
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool

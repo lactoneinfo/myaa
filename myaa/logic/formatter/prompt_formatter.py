@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List
-from myaa.logic.domain.state import AgentState
-from myaa.logic.domain.character import load_character
+from myaa.domain.state import AgentState
+from myaa.domain.character import load_character
 from myaa.config.prompt_defaults import PROMPT_DEFAULTS
 
 

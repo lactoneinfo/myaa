@@ -3,8 +3,8 @@ from enum import Enum
 import time
 import uuid
 import copy
-from myaa.logic.domain.context import Context
-from myaa.logic.domain.message import Message
+from myaa.domain.context import Context
+from myaa.domain.message import Message
 
 
 class Status(str, Enum):

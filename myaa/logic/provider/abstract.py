@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from myaa.logic.domain.message import Message
+from myaa.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import LLMPrompt
 
 

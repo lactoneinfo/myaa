@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List
-from myaa.logic.domain.message import Message
+from myaa.domain.message import Message
 
 
 @dataclass

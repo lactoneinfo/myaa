@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from myaa.logic.domain.character import get_display_name
+from myaa.domain.character import get_display_name
 
 
 @dataclass

@@ -3,8 +3,8 @@ from myaa.data.cache import AgentStateCache
 from myaa.logic.input_manager import InputManager
 from myaa.logic.chat_agent import ChatAgent
 from myaa.logic.output_manager import OutputManager
-from myaa.logic.domain.message import Message
-from myaa.logic.domain.command import ChatCommand
+from myaa.domain.message import Message
+from myaa.domain.command import ChatCommand
 
 
 class Orchestrator:

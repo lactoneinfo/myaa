@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import Optional
 from myaa.data.cache import AgentStateCache
-from myaa.logic.domain.state import AgentState, Status
-from myaa.logic.domain.command import ChatCommand
+from myaa.domain.state import AgentState, Status
+from myaa.domain.command import ChatCommand
 
 
 class InputManager:

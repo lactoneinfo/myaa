@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Dict, Optional, List
-from myaa.logic.domain.state import AgentState
+from myaa.domain.state import AgentState
 
 _TTL = 60 * 30  # 30 min
 
