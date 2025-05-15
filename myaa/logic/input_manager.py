@@ -12,13 +12,13 @@ class InputManager:
     async def handle(self, session_key: str, message: Message) -> str:
         prev: Optional[AgentState] = await self.cache.get_by_session(session_key)
         if prev is None:
-            state = AgentState.new()
+            state = AgentState.new(message)
         else:
             state = prev.copy()
             await self.cache.delete(prev.id)
+            state.add_message(message)
 
         state.status = Status.running
-        state.add_message(message)
 
         await self.cache.put(state)
         await self.cache.bind(session_key, state.id)

@@ -1,0 +1,9 @@
+name: ExampleBot
+description: |
+  This is an example AI assistant.
+  You can freely customize this file to define a new character.
+traits:
+  tone: neutral
+  speed: 1.0
+  pitch: 1.0
+  emotion: neutral
