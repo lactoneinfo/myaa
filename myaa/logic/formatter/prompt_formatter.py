@@ -15,7 +15,7 @@ class LLMPrompt:
 class PromptFormatter:
     @staticmethod
     def format(state: AgentState) -> LLMPrompt:
-        char = load_character(state.responder_name)
+        char = load_character(state.responder_id)
 
         role_instruction = f"You are an playing the role of '{char.name}'.\n"
         format_instruction = "The reply must be in Japanese.\n"
@@ -23,7 +23,7 @@ class PromptFormatter:
 
         dialogue_lines = []
         for msg in state.context.thread_memory + [state.context.message]:
-            line = f"{msg.speaker}: {msg.content}"
+            line = f"{msg.speaker_name}: {msg.content}"
             dialogue_lines.append(line)
 
         return LLMPrompt(

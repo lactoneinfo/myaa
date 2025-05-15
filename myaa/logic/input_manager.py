@@ -12,12 +12,11 @@ class InputManager:
     async def handle(self, session_key: str, command: ChatCommand) -> str:
         prev: Optional[AgentState] = await self.cache.get_by_session(session_key)
         if prev is None:
-            state = AgentState.new(
-                command.message, responder_name=command.responder_name
-            )
+            state = AgentState.new(command.message, responder_id=command.responder_id)
         else:
             state = prev.copy()
             await self.cache.delete(prev.id)
+            state.responder_id = command.responder_id
             state.add_message(command.message)
 
         state.status = Status.running

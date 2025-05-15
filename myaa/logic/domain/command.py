@@ -4,5 +4,5 @@ from myaa.logic.domain.message import Message
 
 @dataclass
 class ChatCommand:
-    responder_name: str
+    responder_id: str
     message: Message

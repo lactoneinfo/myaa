@@ -13,4 +13,4 @@ class ChatAgent:
         assert state is not None
 
         prompt = PromptFormatter.format(state)
-        return await self.provider.chat(prompt, responder_name=state.responder_name)
+        return await self.provider.chat(prompt, responder_id=state.responder_id)
