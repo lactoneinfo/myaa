@@ -1,7 +1,7 @@
 import os
 from myaa.logic.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import LLMPrompt
-from myaa.logic.provider.base import LLMProvider
+from myaa.logic.provider.abstract import LLMProvider
 
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool
@@ -48,13 +48,13 @@ class GeminiProvider(LLMProvider):
                 prompt.role_instruction,
                 prompt.format_instruction,
                 structured_output_hint,
-                f"Character description:\n{prompt.character_description}\n",
+                f"responder description:\n{prompt.responder_description}\n",
                 "Conversation so far:",
                 *[f"User: {line}" for line in prompt.dialogue_lines],
             ]
         )
 
-    async def chat(self, messages: LLMPrompt, character_name: str) -> Message:
+    async def chat(self, messages: LLMPrompt, responder_name: str) -> Message:
         prompt = self._adapt_prompt(messages)
 
         response = self.model.generate_content(
@@ -70,9 +70,9 @@ class GeminiProvider(LLMProvider):
             function_call = response.candidates[0].content.parts[0].function_call
             args = function_call.args
             content = args["content"]
-            if content.startswith(f"{character_name}:"):
+            if content.startswith(f"{responder_name}:"):
                 content = content.split(":", 1)[-1].strip()
         except Exception:
             raise ValueError("Structured output missing or invalid")
 
-        return Message(speaker=character_name, content=content)
+        return Message(speaker=responder_name, content=content)

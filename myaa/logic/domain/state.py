@@ -15,16 +15,16 @@ class Status(str, Enum):
 @dataclass
 class AgentState:
     id: str
-    character_name: str
+    responder_name: str
     context: Context
     status: Status = Status.ready
     updated_at: float = field(default_factory=time.time)
 
     @classmethod
-    def new(cls, initial_message: Message) -> "AgentState":
+    def new(cls, initial_message: Message, responder_name: str) -> "AgentState":
         return cls(
             id=str(uuid.uuid4()),
-            character_name="example",
+            responder_name=responder_name,
             context=Context(message=initial_message),
             updated_at=time.time(),
         )
@@ -32,7 +32,7 @@ class AgentState:
     def copy(self) -> "AgentState":
         return AgentState(
             id=str(uuid.uuid4()),
-            character_name=self.character_name,
+            responder_name=self.responder_name,
             status=Status.ready,
             context=copy.deepcopy(self.context),
             updated_at=time.time(),

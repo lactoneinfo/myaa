@@ -8,18 +8,18 @@ from myaa.logic.domain.character import load_character
 class LLMPrompt:
     role_instruction: str
     format_instruction: str
-    character_description: str
+    responder_description: str
     dialogue_lines: List[str]  # or even List[Tuple[str, str]] for (speaker, utterance)
 
 
 class PromptFormatter:
     @staticmethod
     def format(state: AgentState) -> LLMPrompt:
-        char = load_character(state.character_name)
+        char = load_character(state.responder_name)
 
         role_instruction = f"You are an playing the role of '{char.name}'.\n"
         format_instruction = "The reply must be in Japanese.\n"
-        character_description = char.description.strip()
+        responder_description = char.description.strip()
 
         dialogue_lines = []
         for msg in state.context.thread_memory + [state.context.message]:
@@ -29,6 +29,6 @@ class PromptFormatter:
         return LLMPrompt(
             role_instruction=role_instruction,
             format_instruction=format_instruction,
-            character_description=character_description,
+            responder_description=responder_description,
             dialogue_lines=dialogue_lines,
         )

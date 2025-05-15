@@ -7,6 +7,8 @@ from myaa.logic.domain.state import AgentState
 from myaa.logic.orchestrator import Orchestrator
 from myaa.logic.domain.message import Message
 
+from myaa.logic.domain.command import ChatCommand
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DEBUG_MODE = os.getenv("DEBUG_MODE", "0") == "1"
@@ -32,7 +34,8 @@ class MyaaBot(discord.Client):
                     speaker=discord_message.author.display_name,
                     content=text,
                 )
-                reply = await orchestrator.run(session_key, message)
+                command = ChatCommand(responder_name="example", message=message)
+                reply = await orchestrator.run(session_key, command)
                 await discord_message.channel.send(reply.to_display_text())
 
             elif content == "!dump" and DEBUG_MODE:

@@ -9,7 +9,6 @@ from typing import Dict
 class Character:
     name: str
     description: str
-    traits: Dict[str, float]
 
 
 @lru_cache(maxsize=None)
@@ -19,9 +18,14 @@ def load_character(
     path = config_dir / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Character config not found: {path}")
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Character config must be a YAML mapping (dict): {path}")
+    except yaml.YAMLError as e:
+        raise ValueError(f"YAML parse error in {path}:\n{e}") from e
+
     return Character(
         name=data.get("name", name),
         description=data.get("description", ""),
-        traits=data.get("traits", {}),
     )
