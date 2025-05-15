@@ -1,7 +1,6 @@
 import discord
 import asyncio
 import os
-import time
 from dotenv import load_dotenv
 from myaa.data.cache import AgentStateCache
 from myaa.logic.orchestrator import Orchestrator
@@ -41,13 +40,19 @@ class MyaaBot(discord.Client):
 
             elif content == "!dump":
                 states = await cache.list()
+                print(cache._session_map)
+                print(cache._store.keys())
                 lines = []
                 for s in states:
                     lines.append(f"ID: {s.id} | status: {s.status}")
                     lines.append(f"  msg: {s.context.message.to_display_text()}")
-                    lines.append(f"  mem: {[m.to_display_text() for m in s.context.thread_memory]}")
+                    lines.append(
+                        f"  mem: {[m.to_display_text() for m in s.context.thread_memory]}"
+                    )
                     lines.append("")
-                await discord_message.channel.send("```" + "\n".join(lines)[:1900] + "```")
+                await discord_message.channel.send(
+                    "```" + "\n".join(lines)[:1900] + "```"
+                )
         except Exception as e:
             await discord_message.channel.send(f"⚠️ Error: {e}")
             raise

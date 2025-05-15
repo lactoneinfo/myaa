@@ -13,4 +13,4 @@ class OutputManager:
             return
         state.add_message(reply)
         state.status = Status.ready
-        await self.cache.put(state, session_key="_dummy")
+        await self.cache.put(state)

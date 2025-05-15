@@ -20,5 +20,6 @@ class InputManager:
         state.status = Status.running
         state.add_message(message)
 
-        await self.cache.put(state, session_key)
+        await self.cache.put(state)
+        await self.cache.bind(session_key, state.id)
         return state.id

@@ -26,10 +26,13 @@ class AgentStateCache:
         as_id = self._session_map.get(session_key)
         return await self.get(as_id) if as_id else None
 
-    async def put(self, state: AgentState, session_key: str) -> None:
+    async def put(self, state: AgentState) -> None:
         async with self._lock:
             self._store[state.id] = state
-            self._session_map[session_key] = state.id
+
+    async def bind(self, session_key: str, as_id: str) -> None:
+        async with self._lock:
+            self._session_map[session_key] = as_id
 
     async def list(self) -> Iterable[AgentState]:
         async with self._lock:
