@@ -1,0 +1,2 @@
+# Force LF for all text files (cross-platform safe)
+* text=auto eol=lf
