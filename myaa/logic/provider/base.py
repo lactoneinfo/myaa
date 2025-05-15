@@ -2,6 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from myaa.logic.domain.message import Message
 from myaa.logic.formatter.prompt_formatter import LLMPrompt
+from myaa.logic.provider.gemini_provider import GeminiProvider
 
 
 class LLMProvider(ABC):
@@ -13,7 +14,6 @@ class LLMProvider(ABC):
 def get_provider() -> LLMProvider:
     provider = os.getenv("LLM_PROVIDER")
     if provider == "gemini":
-        from .gemini_provider import GeminiProvider
 
         return GeminiProvider()
     else:
