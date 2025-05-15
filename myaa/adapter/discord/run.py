@@ -8,6 +8,7 @@ from myaa.logic.domain.message import Message
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+DEBUG_MODE = os.getenv("DEBUG_MODE", "0") == "1"
 
 cache = AgentStateCache()
 orchestrator = Orchestrator(cache)
@@ -24,7 +25,6 @@ class MyaaBot(discord.Client):
         content = discord_message.content.strip()
         session_key = f"{discord_message.channel.id}:{getattr(discord_message, 'thread', None) or 0}"
         try:
-
             if content.startswith("!chat "):
                 text = content[len("!chat ") :]
                 message = Message(
@@ -34,11 +34,11 @@ class MyaaBot(discord.Client):
                 reply = await orchestrator.run(session_key, message)
                 await discord_message.channel.send(reply.to_display_text())
 
-            elif content == "!state":
+            elif content == "!state" and DEBUG_MODE:
                 states = [s.id for s in await cache.list()]
                 await message.channel.send(f"cached AS: {states}")
 
-            elif content == "!dump":
+            elif content == "!dump" and DEBUG_MODE:
                 states = await cache.list()
                 print(cache._session_map)
                 print(cache._store.keys())
