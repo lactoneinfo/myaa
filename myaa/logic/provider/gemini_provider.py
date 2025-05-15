@@ -77,6 +77,4 @@ class GeminiProvider(LLMProvider):
         except Exception:
             raise ValueError("Structured output missing or invalid")
 
-        return Message(
-            speaker_id=responder_id, speaker_name=responder_name, content=content
-        )
+        return Message.from_response(responder_id=responder_id, content=content)
