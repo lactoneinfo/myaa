@@ -1,0 +1,10 @@
+default:
+  name: "ExampleBot"
+  description: |
+    You are a sample assistant character.
+    You can freely customize this file to define a new character.
+example:
+  name: "ExampleBot"
+  description: |
+    You are a sample assistant character.
+    You can freely customize this file to define a new character.

@@ -11,12 +11,22 @@ from langchain_core.tools import tool
 from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
+import yaml
+from langchain.schema import SystemMessage
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
 # ---------------------------------------------------------------------------
 load_dotenv()
 llm = init_chat_model(os.environ["GEMINI_MODEL"])
+
+
+persona_file = os.path.join(os.path.dirname(__file__), "personas.yaml")
+if os.path.exists(persona_file):
+    with open(persona_file, encoding="utf-8") as f:
+        persona_configs = yaml.safe_load(f)
+else:
+    persona_configs = {}
 
 
 # ---------------------------------------------------------------------------
@@ -47,15 +57,18 @@ graph_builder = StateGraph(ChatState)
 
 def chatbot(state: ChatState):
     # persona_id を使ったシステムメッセージを先頭に挿入
-    persona = state["persona_id"]
-    base_msgs = [
-        m for m in state["messages"] if not (m.type == "ai" and m.content.strip() == "")
+    pid = state["persona_id"]
+    config = persona_configs.get(pid, {})
+    name = config.get("name", pid)
+    desc = config.get("description", "You are a sample assistant character.")
+    system_msg = SystemMessage(content=f"あなたはキャラクター『{name}』です。\n{desc}")
+    history = [
+        m
+        for m in state["messages"]
+        if not (getattr(m, "role", None) == "ai" and m.content.strip() == "")
     ]
-    system_msg = {
-        "role": "system",
-        "content": f"あなたはキャラクター「{persona}」として振る舞ってください。",
-    }
-    reply = llm_with_tools.invoke([system_msg] + base_msgs)
+    messages = [system_msg] + history
+    reply = llm_with_tools.invoke(messages)
     return {"messages": [reply]}
 
 
