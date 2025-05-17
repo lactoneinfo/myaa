@@ -6,10 +6,11 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_tavily import TavilySearch # type: ignore
+from langchain_tavily import TavilySearch  # type: ignore
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
@@ -70,7 +71,7 @@ compiled_graph = graph_builder.compile(checkpointer=memory)
 # ---------------------------------------------------------------------------
 # Public helper
 # ---------------------------------------------------------------------------
-def stream_chat(thread_id: str, user_text: str, responder_id: str):
+async def stream_chat(thread_id: str, user_text: str, responder_id: str):
     """Invoke the graph and yield AI messages (for streaming to Discord)."""
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     payload = {
@@ -82,7 +83,27 @@ def stream_chat(thread_id: str, user_text: str, responder_id: str):
         if "messages" in ev:
             yield ev["messages"][-1].content  # Return raw string only
 
-from langgraph.checkpoint.memory import InMemorySaver
+
+async def stream_chat_debug(thread_id: str, user_text: str, responder_id: str):
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    payload = {
+        "messages": [{"role": "user", "content": user_text}],
+        "responder_id": responder_id,
+    }
+    events = compiled_graph.stream(payload, config, stream_mode="debug")
+    for ev in events:
+        print("🛠 EVENT:", ev)
+
+        if "tool_calls" in ev:
+            print("➡️ tool_calls:", ev["tool_calls"])
+        if "tool_results" in ev:
+            print("⬅️ tool_results:", ev["tool_results"])
+
+        if "messages" in ev:
+            for m in ev["messages"]:
+                print(f"   · [{m.role}] {m.content}")
+            yield ev["messages"][-1].content
+
 
 def list_graph_states(session_mgr) -> str:
     if not isinstance(memory, InMemorySaver):
@@ -96,7 +117,7 @@ def list_graph_states(session_mgr) -> str:
         if cp is None:
             lines.append("  (no checkpoint found)\n")
             continue
-        
+
         values = cp.checkpoint.get("channel_values", {}) or {}
         messages = values.get("messages", [])
 

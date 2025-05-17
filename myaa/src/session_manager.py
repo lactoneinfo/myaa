@@ -17,6 +17,5 @@ class SessionManager:
             self._map[session_key] = str(self._counter)
         return self._map[session_key]
 
-
     def list_thread_ids(self) -> list[str]:
         return list(self._map.values())
