@@ -4,5 +4,5 @@ __pycache__/
 myaa.egg-info/
 .env
 
-myaa/resources/characters/*.yaml
-!myaa/resources/characters/example.yaml
+myaa/resources/personas/*.yaml
+!myaa/resources/personas/example.yaml
