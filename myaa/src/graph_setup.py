@@ -39,17 +39,23 @@ llm_with_tools = llm.bind_tools(tools)
 # ---------------------------------------------------------------------------
 class ChatState(TypedDict):
     messages: Annotated[List, add_messages]
-    responder_id: str
+    persona_id: str
 
 
 graph_builder = StateGraph(ChatState)
 
 
 def chatbot(state: ChatState):
-    msgs = [
+    # persona_id を使ったシステムメッセージを先頭に挿入
+    persona = state["persona_id"]
+    base_msgs = [
         m for m in state["messages"] if not (m.type == "ai" and m.content.strip() == "")
     ]
-    reply = llm_with_tools.invoke(msgs)
+    system_msg = {
+        "role": "system",
+        "content": f"あなたはキャラクター「{persona}」として振る舞ってください。",
+    }
+    reply = llm_with_tools.invoke([system_msg] + base_msgs)
     return {"messages": [reply]}
 
 
@@ -71,12 +77,12 @@ compiled_graph = graph_builder.compile(checkpointer=memory)
 # ---------------------------------------------------------------------------
 # Public helper
 # ---------------------------------------------------------------------------
-async def stream_chat(thread_id: str, user_text: str, responder_id: str):
+async def stream_chat(thread_id: str, user_text: str, persona_id: str):
     """Invoke the graph and yield AI messages (for streaming to Discord)."""
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     payload = {
         "messages": [{"role": "user", "content": user_text}],
-        "responder_id": responder_id,
+        "persona_id": persona_id,
     }
     events = compiled_graph.stream(payload, config, stream_mode="values")
     for ev in events:
@@ -84,11 +90,11 @@ async def stream_chat(thread_id: str, user_text: str, responder_id: str):
             yield ev["messages"][-1].content  # Return raw string only
 
 
-async def stream_chat_debug(thread_id: str, user_text: str, responder_id: str):
+async def stream_chat_debug(thread_id: str, user_text: str, persona_id: str):
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     payload = {
         "messages": [{"role": "user", "content": user_text}],
-        "responder_id": responder_id,
+        "persona_id": persona_id,
     }
     events = compiled_graph.stream(payload, config, stream_mode="debug")
     for ev in events:

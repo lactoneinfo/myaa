@@ -37,14 +37,15 @@ class ChatService:
     def get_character(self, session_key: str) -> str:
         return self.char_bindings.get(session_key, "example")
 
-    async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
+    async def chat(self, session_key: str, user_text: str) -> str | None:
         thread_id = self.session_mgr.resolve(session_key)
         debug = self.get_debug(session_key)
+        persona_id = self.get_character(session_key)
         last_reply: str | None = None
-        async for chunk in stream_chat(thread_id, user_text, speaker):
+        async for chunk in stream_chat(thread_id, user_text, persona_id):
             last_reply = chunk
         if debug:
-            async for chunk in stream_chat_debug(thread_id, user_text, speaker):
+            async for chunk in stream_chat_debug(thread_id, user_text, persona_id):
                 print(chunk)
         return last_reply
 
@@ -66,10 +67,8 @@ async def on_ready():
     print(f"Logged in as {user} (ID: {user.id})")
 
 
-# セッションキー作成ユーティリティ
 def make_session_key(ctx: commands.Context) -> str:
     channel_id = ctx.channel.id
-    # スレッドの場合は同じIDを使う
     thread_id = channel_id
     return f"{channel_id}:{thread_id}"
 
@@ -81,11 +80,11 @@ async def debug(ctx: commands.Context):
     await ctx.send(f"🔧 Debug mode: {'ON' if new_state else 'OFF'}")
 
 
-@bot.command()
-async def bind(ctx: commands.Context, character_id: str):
+@bot.command(name="char")
+async def char(ctx: commands.Context, character_id: str):
     key = make_session_key(ctx)
     service.bind_character(key, character_id)
-    await ctx.send(f"🔖 Character bound: `{character_id}`")
+    await ctx.send(f"🔖 Character set to `{character_id}`")
 
 
 @bot.command()
@@ -93,9 +92,8 @@ async def chat(ctx: commands.Context, *, text: str):
     key = make_session_key(ctx)
     if key not in service.debug_map:
         service.debug_map[key] = False
-    speaker = ctx.author.display_name
     async with ctx.channel.typing():
-        reply = await service.chat(key, text, speaker)
+        reply = await service.chat(key, text)
     if reply:
         await ctx.send(reply)
 
