@@ -60,14 +60,23 @@ def chatbot(state: ChatState):
     pid = state["persona_id"]
     config = persona_configs.get(pid, {})
     name = config.get("name", pid)
+    owners = config.get("owners") or (
+        [] if config.get("owner") is None else [config.get("owner")]
+    )
+    owners_str = ", ".join(owners) if owners else None
     desc = config.get("description", pid)
     system_msg = SystemMessage(
-        content=f"You are {name}. \n{desc}\n"
-        + "Human messages are read in the format 'name: content'."
-        + "Please do not include the name in the reply, only output the message content."
+        content=(
+            f"You are {name}. \n{desc}\n" + f"Your owner: {owners_str}.\n"
+            if owners_str
+            else ""
+            + "Human messages are read in the format 'name: content'.\n"
+            + "Please do not include the name in the reply, only output the message content.\n"
+        )
     )
     history = state.get("messages", [])
     messages = [system_msg] + history
+    print(history)
     raw = llm_with_tools.invoke(messages)
     ai_msg = None
     if isinstance(raw, AIMessage):
