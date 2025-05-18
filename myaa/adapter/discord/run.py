@@ -1,122 +1,144 @@
-import discord
-import asyncio
 import os
 from dotenv import load_dotenv
-from myaa.data.cache import AgentStateCache
-from myaa.domain.state import AgentState
-from myaa.logic.orchestrator import Orchestrator
-from myaa.domain.message import Message
-from myaa.domain.character import available_characters, get_display_name
-from myaa.domain.command import ChatCommand
+import discord
+from discord.ext import commands
+
+from myaa.src.session_manager import SessionManager
+from myaa.src.graph_setup import (
+    stream_chat,
+    stream_chat_debug,
+    list_graph_states,
+    default_persona_id,
+)
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-DEBUG_MODE = os.getenv("DEBUG_MODE", "0") == "1"
+if not TOKEN:
+    raise RuntimeError("DISCORD_BOT_TOKEN が設定されていません。")
 
-cache = AgentStateCache()
-orchestrator = Orchestrator(cache)
-char_bindings: dict[str, str] = {}
-
-
-class MyaaBot(discord.Client):
-    async def on_ready(self):
-        print(f"Logged in as {self.user}")
-
-    async def on_message(self, discord_message: discord.Message):
-        global char_bindings
-        if discord_message.author.bot:
-            return
-
-        content = discord_message.content.strip()
-        session_key = f"{discord_message.channel.id}:{getattr(discord_message, 'thread', None) or 0}"
-
-        try:
-
-            if content == "!char list":
-                chars = available_characters()
-                if not chars:
-                    await discord_message.channel.send("⚠️ No characters available.")
-                else:
-                    try:
-                        lines = []
-                        for char_id in chars:
-                            display_name = get_display_name(char_id)
-                            lines.append(f"- {char_id}: {display_name}")
-                        await discord_message.channel.send(
-                            "🧠 Available characters:\n" + "\n".join(lines)
-                        )
-                    except Exception as e:
-                        await discord_message.channel.send(
-                            f"⚠️ Failed to load characters: {e}"
-                        )
-                return
-
-            if content.startswith("!char set "):
-                name = content[len("!char set ") :].strip()
-                if name not in available_characters():
-                    await discord_message.channel.send(
-                        f"⚠️ Character '{name}' not found."
-                    )
-                    return
-                char_bindings[session_key] = name
-                await discord_message.channel.send(
-                    f"✅ Character set to '{name}' for this session."
-                )
-                return
-
-            if content.startswith("!chat "):
-                text = content[len("!chat ") :]
-                responder_id = char_bindings.get(session_key, "example")
-                if responder_id not in available_characters():
-                    await discord_message.channel.send(
-                        f"⚠️ Character '{responder_id}' is not available."
-                    )
-                    return
-                message = Message(
-                    speaker_id=discord_message.author.display_name,
-                    speaker_name=discord_message.author.display_name,
-                    content=text,
-                )
-                command = ChatCommand(responder_id=responder_id, message=message)
-                reply = await orchestrator.run(session_key, command)
-                await discord_message.channel.send(reply.to_display_text())
-                return
-
-            if content == "!dump" and DEBUG_MODE:
-                states: list[AgentState] = await cache.list()
-                lines = []
-                for s in states:
-                    lines.append(f"ID: {s.id} | status: {s.status}")
-
-                    if s.context.message is None:
-                        lines.append("  msg: [No message]")
-                        lines.append("  mem: []")
-                        lines.append("")
-                        continue
-
-                    lines.append(f"  msg: {s.context.message.to_display_text()}")
-                    lines.append(
-                        f"  mem: {[m.to_display_text() for m in s.context.thread_memory]}"
-                    )
-                    lines.append("")
-
-                await discord_message.channel.send(
-                    "```" + "\n".join(lines)[:1900] + "```"
-                )
-                return
-        except Exception as e:
-            await discord_message.channel.send(f"⚠️ Error: {e}")
-            raise
+session_mgr = SessionManager()
 
 
-async def main():
-    intents = discord.Intents.default()
-    intents.message_content = True
-    client = MyaaBot(intents=intents)
-    if TOKEN is None:
-        raise ValueError("DISCORD_BOT_TOKEN not found in environment.")
-    await client.start(TOKEN)
+class ChatService:
+    def __init__(self, session_mgr: SessionManager, default_persona):
+        self.session_mgr = session_mgr
+        self.default_persona = default_persona
+        self.debug_map: dict[str, bool] = {}
+        self.char_bindings: dict[str, str] = {}
+        self.joined_channels: set[int] = set()
+
+    def toggle_debug(self, session_key: str) -> bool:
+        current = self.debug_map.get(session_key, False)
+        self.debug_map[session_key] = not current
+        return not current
+
+    def get_debug(self, session_key: str) -> bool:
+        return self.debug_map.get(session_key, False)
+
+    def bind_character(self, session_key: str, char_id: str):
+        self.char_bindings[session_key] = char_id
+
+    def get_character(self, session_key: str) -> str:
+        return self.char_bindings.get(session_key, self.default_persona)
+
+    async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
+        thread_id = self.session_mgr.resolve(session_key)
+        debug = self.get_debug(session_key)
+        persona_id = self.get_character(session_key)
+        last_reply: str | None = None
+        async for chunk in stream_chat(thread_id, user_text, persona_id, speaker):
+            last_reply = chunk
+        if debug:
+            async for chunk in stream_chat_debug(
+                thread_id, user_text, persona_id, speaker
+            ):
+                print(chunk)
+        return last_reply
+
+    def dump(self) -> str:
+        return list_graph_states(self.session_mgr)
+
+
+service = ChatService(session_mgr, default_persona=default_persona_id)
+
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+@bot.event
+async def on_ready():
+    user = bot.user
+    assert user is not None, "User should be set in on_ready()"
+    print(f"Logged in as {user} (ID: {user.id})")
+
+
+def make_session_key(ctx_or_msg) -> str:
+    if isinstance(ctx_or_msg, discord.Message):
+        cid = ctx_or_msg.channel.id
+        return f"{cid}:{cid}"
+    channel_id = ctx_or_msg.channel.id
+    return f"{channel_id}:{channel_id}"
+
+
+@bot.command()
+async def join(ctx: commands.Context):
+    key = make_session_key(ctx)
+    char_id = service.get_character(key)
+    service.joined_channels.add(ctx.channel.id)
+    await ctx.send(f"✅ {char_id} がログインしました。")
+
+
+@bot.command()
+async def leave(ctx: commands.Context):
+    key = make_session_key(ctx)
+    char_id = service.get_character(key)
+    service.joined_channels.discard(ctx.channel.id)
+    await ctx.send(f"👋 {char_id} が退出しました。")
+
+
+@bot.command()
+async def debug(ctx: commands.Context):
+    if os.getenv("DEBUG_MODE") != "1":
+        await ctx.send(
+            "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
+        )
+        return
+    key = make_session_key(ctx)
+    new_state = service.toggle_debug(key)
+    await ctx.send(f"🔧 Debug mode: {'ON' if new_state else 'OFF'}")
+
+
+@bot.command(name="char")
+async def char(ctx: commands.Context, character_id: str):
+    key = make_session_key(ctx)
+    service.bind_character(key, character_id)
+    await ctx.send(f"🔖 Character set to `{character_id}`")
+
+
+@bot.command()
+async def dump(ctx: commands.Context):
+    dump_text = service.dump()
+    if len(dump_text) > 1900:
+        dump_text = dump_text[:1900] + "\n…（省略）"
+    await ctx.send(f"```{dump_text}```")
+
+
+@bot.event
+async def on_message(msg: discord.Message):
+    await bot.process_commands(msg)
+    if msg.author.bot or msg.content.startswith("!"):
+        return
+    if msg.channel.id not in service.joined_channels:
+        return
+    session_key = make_session_key(msg)
+    user_text = msg.content
+    speaker = msg.author.display_name
+    reply = await service.chat(session_key, user_text, speaker)
+    if reply:
+        await msg.channel.send(reply)
 
 
 def entrypoint():
-    asyncio.run(main())
+    assert TOKEN is not None
+    bot.run(TOKEN)

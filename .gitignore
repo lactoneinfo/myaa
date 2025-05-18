@@ -3,6 +3,3 @@ __pycache__/
 *.py[cod]
 myaa.egg-info/
 .env
-
-myaa/resources/characters/*.yaml
-!myaa/resources/characters/example.yaml

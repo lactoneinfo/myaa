@@ -12,9 +12,7 @@ myaa/                    # <repo root>
 └── myaa/                # main Python package
     ├── __init__.py
     ├── adapter/         # Discord I/O, etc
-    ├── logic/           # core agent logic (LangGraph etc)
-    ├── tools/           # tool invocation layer (TBD)
-    └── data/            # cache/memory modules (TBD)
+    └── src/             # core agent logic (LangGraph etc)
 ```
 
 ---
@@ -31,11 +29,37 @@ uv pip install -e .
 
 # 3. Set your secrets
 cp .env.example .env
-# Then edit .env to include your Discord bot token and OpenAI API key
+# Then edit .env to include your Discord bot token and Gemini API key etc.
+# edit `personas.yaml` to define the characters to be used
+
 
 # 4. Run the bot
 uv run run-bot
 ```
+
+## 🤖 Discord Commands
+
+!join
+  Description: Invite the current character to this channel.
+  Usage: `!join`
+
+!leave
+  Description: Remove the current character from this channel.
+  Usage: `!leave`
+
+!char <character_id>
+  Description: Change the character for this session.
+  Usage: `!char example`
+
+!debug
+  Description: Toggle debug mode. When ON, internal event logs are printed to the console.
+  Usage: `!debug`
+
+!dump (for debugging)
+  Description: Display the session’s memory state (including chat history).
+  Usage: `!dump`
+💡 Debug commands (e.g., `!dump`) are only available if you define `DEBUG_MODE=1` in your .env file.
+
 
 ---
 
@@ -54,10 +78,6 @@ python dev.py fix            # Auto-fix lint issues (ruff --fix)
 python dev.py format         # Format code using black
 python dev.py check-format   # Check format without modifying
 python dev.py typecheck      # Run mypy type checker
-python dev.py test           # Run pytest
 
 # Recommended before commit:
 python dev.py check-all      # Run lint, format-check, and typecheck in one shot
-
-💡 Debug commands (e.g., `!dump`) are only available if you define `DEBUG_MODE=1` in your .env file.
-⚠️ This variable is not included in `.env.example` by design, to prevent accidental exposure of sensitive internal state.
