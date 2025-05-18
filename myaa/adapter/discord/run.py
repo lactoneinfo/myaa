@@ -118,6 +118,11 @@ async def char(ctx: commands.Context, character_id: str):
 
 @bot.command()
 async def dump(ctx: commands.Context):
+    if os.getenv("DEBUG_MODE") != "1":
+        await ctx.send(
+            "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
+        )
+        return
     dump_text = service.dump()
     if len(dump_text) > 1900:
         dump_text = dump_text[:1900] + "\n…（省略）"
