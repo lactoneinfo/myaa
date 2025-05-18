@@ -12,7 +12,7 @@ from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 import yaml
-from langchain.schema import SystemMessage
+from langchain.schema import SystemMessage, HumanMessage, AIMessage
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
@@ -60,15 +60,20 @@ def chatbot(state: ChatState):
     config = persona_configs.get(pid, {})
     name = config.get("name", pid)
     desc = config.get("description", pid)
-    system_msg = SystemMessage(content=f"あなたはキャラクター『{name}』です。\n{desc}")
-    history = [
-        m
-        for m in state["messages"]
-        if not (getattr(m, "role", None) == "ai" and m.content.strip() == "")
-    ]
+    system_msg = SystemMessage(
+        content=f"You are {name}. \n{desc}\n"
+        + "Human messages are read in the format 'name: content'."
+        + "Please do not include the name in the reply, only output the message content."
+    )
+    history = state.get("messages", [])
     messages = [system_msg] + history
-    reply = llm_with_tools.invoke(messages)
-    return {"messages": [reply]}
+    raw = llm_with_tools.invoke(messages)
+    ai_msg = None
+    if isinstance(raw, AIMessage):
+        ai_msg = raw.model_copy(update={"additional_kwargs": {"name": name}})
+    else:
+        ai_msg = AIMessage(content=f"{name}: {raw}", additional_kwargs={"name": name})
+    return {"messages": [ai_msg]}
 
 
 graph_builder.add_node("chatbot", chatbot)
@@ -89,23 +94,31 @@ compiled_graph = graph_builder.compile(checkpointer=memory)
 # ---------------------------------------------------------------------------
 # Public helper
 # ---------------------------------------------------------------------------
-async def stream_chat(thread_id: str, user_text: str, persona_id: str):
+async def stream_chat(thread_id: str, user_text: str, persona_id: str, speaker: str):
     """Invoke the graph and yield AI messages (for streaming to Discord)."""
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    formatted = f"{speaker}: {user_text}"
     payload = {
-        "messages": [{"role": "user", "content": user_text}],
+        "messages": [
+            HumanMessage(content=formatted, additional_kwargs={"name": speaker})
+        ],
         "persona_id": persona_id,
     }
     events = compiled_graph.stream(payload, config, stream_mode="values")
     for ev in events:
         if "messages" in ev:
-            yield ev["messages"][-1].content  # Return raw string only
+            yield ev["messages"][-1].content
 
 
-async def stream_chat_debug(thread_id: str, user_text: str, persona_id: str):
+async def stream_chat_debug(
+    thread_id: str, user_text: str, persona_id: str, speaker: str
+):
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    formatted = f"{speaker}: {user_text}"
     payload = {
-        "messages": [{"role": "user", "content": user_text}],
+        "messages": [
+            HumanMessage(content=formatted, additional_kwargs={"name": speaker})
+        ],
         "persona_id": persona_id,
     }
     events = compiled_graph.stream(payload, config, stream_mode="debug")
@@ -126,40 +139,36 @@ async def stream_chat_debug(thread_id: str, user_text: str, persona_id: str):
 def list_graph_states(session_mgr) -> str:
     if not isinstance(memory, InMemorySaver):
         return "⚠️ This memory backend does not support inspection."
-
     lines: list[str] = []
     for thread_id in session_mgr.list_thread_ids():
         lines.append(f"🧵 Thread ID: {thread_id}")
-
         cp = memory.get_tuple({"configurable": {"thread_id": thread_id}})
-        if cp is None:
+        if not cp:
             lines.append("  (no checkpoint found)\n")
             continue
-
-        values = cp.checkpoint.get("channel_values", {}) or {}
-        messages = values.get("messages", [])
-
-        if not messages:
+        msgs = cp.checkpoint.get("channel_values", {}).get("messages", [])
+        if not msgs:
             lines.append("  (no messages found)\n")
             continue
-
-        for m in messages:
+        for m in msgs:
+            # content
             if hasattr(m, "content"):
-                content = m.content
+                raw = m.content or ""
             elif isinstance(m, dict):
-                content = m.get("content", "")
+                raw = m.get("content") or ""
             else:
-                content = str(m)
-
+                raw = str(m) or ""
+            content = raw.strip()
+            # role
             kind = m.__class__.__name__.lower()
-            if "human" in kind:
-                role = "user"
-            elif "ai" in kind:
-                role = "ai"
-            else:
-                role = m.get("role", "?") if isinstance(m, dict) else "?"
-
-            lines.append(f"  [{role}] {content.strip()}")
+            role = "user" if "human" in kind else "ai"
+            # speaker
+            speaker = None
+            if hasattr(m, "additional_kwargs"):
+                speaker = m.additional_kwargs.get("name")
+            elif isinstance(m, dict):
+                speaker = m.get("name")
+            speaker = speaker or role
+            lines.append(f"  [{role}][{speaker}] {content}")
         lines.append("")
-
     return "\n".join(lines) if lines else "⚠️ No active sessions."

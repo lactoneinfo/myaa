@@ -35,15 +35,17 @@ class ChatService:
     def get_character(self, session_key: str) -> str:
         return self.char_bindings.get(session_key, "example")
 
-    async def chat(self, session_key: str, user_text: str) -> str | None:
+    async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
         thread_id = self.session_mgr.resolve(session_key)
         debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
         last_reply: str | None = None
-        async for chunk in stream_chat(thread_id, user_text, persona_id):
+        async for chunk in stream_chat(thread_id, user_text, persona_id, speaker):
             last_reply = chunk
         if debug:
-            async for chunk in stream_chat_debug(thread_id, user_text, persona_id):
+            async for chunk in stream_chat_debug(
+                thread_id, user_text, persona_id, speaker
+            ):
                 print(chunk)
         return last_reply
 
@@ -104,17 +106,6 @@ async def char(ctx: commands.Context, character_id: str):
 
 
 @bot.command()
-async def chat(ctx: commands.Context, *, text: str):
-    key = make_session_key(ctx)
-    if key not in service.debug_map:
-        service.debug_map[key] = False
-    async with ctx.channel.typing():
-        reply = await service.chat(key, text)
-    if reply:
-        await ctx.send(reply)
-
-
-@bot.command()
 async def dump(ctx: commands.Context):
     dump_text = service.dump()
     if len(dump_text) > 1900:
@@ -125,17 +116,17 @@ async def dump(ctx: commands.Context):
 @bot.event
 async def on_message(msg: discord.Message):
     await bot.process_commands(msg)
-    if msg.author.bot:
-        return
-    if msg.content.startswith("!"):
+    if msg.author.bot or msg.content.startswith("!"):
         return
     if msg.channel.id not in service.joined_channels:
         return
     session_key = make_session_key(msg)
     user_text = msg.content
-    reply = await service.chat(session_key, user_text)
+    speaker = msg.author.display_name
+    reply = await service.chat(session_key, user_text, speaker)
     if reply:
         await msg.channel.send(reply)
+
 
 def entrypoint():
     assert TOKEN is not None
