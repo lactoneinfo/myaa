@@ -1,8 +1,8 @@
 [project]
 name = "myaa"
-version = "0.1.0"
+version = "0.2.0"
 description = "Minimal LangGraph-powered Discord assistant"
-authors = [{ name = "Your Name", email = "you@example.com" }]
+authors = [{ name = "lactoneinfo", email = "lactoneinfo@gmail.com" }]
 requires-python = ">=3.11"
 
 dependencies = [
