@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 import discord
@@ -132,14 +133,17 @@ async def dump(ctx: commands.Context):
 @bot.event
 async def on_message(msg: discord.Message):
     await bot.process_commands(msg)
-    if msg.author.bot or msg.content.startswith("!"):
+    if msg.author == bot.user or msg.content.startswith("!"):
         return
     if msg.channel.id not in service.joined_channels:
         return
+    if msg.author.bot and msg.author != bot.user:
+        await asyncio.sleep(2)
     session_key = make_session_key(msg)
     user_text = msg.content
     speaker = msg.author.display_name
-    reply = await service.chat(session_key, user_text, speaker)
+    async with msg.channel.typing():
+        reply = await service.chat(session_key, user_text, speaker)
     if reply:
         await msg.channel.send(reply)
 

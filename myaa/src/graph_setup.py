@@ -76,7 +76,6 @@ def chatbot(state: ChatState):
     )
     history = state.get("messages", [])
     messages = [system_msg] + history
-    print(history)
     raw = llm_with_tools.invoke(messages)
     ai_msg = None
     if isinstance(raw, AIMessage):
