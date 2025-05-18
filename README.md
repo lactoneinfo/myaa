@@ -37,29 +37,15 @@ cp .env.example .env
 uv run run-bot
 ```
 
-## 🤖 Discord Commands
+| Command              | Description                                                                 |
+|----------------------|-----------------------------------------------------------------------------|
+| `!join`              | Invite the current character to this channel.                              |
+| `!leave`             | Remove the current character from this channel.                            |
+| `!char <id>`         | Change the character for this session. Example: `!char example`            |
+| `!debug`             | Toggle debug mode. Requires `DEBUG_MODE=1` in `.env`.                      |
+| `!dump` (debug only) | Show memory state (e.g., chat history). Only works in debug mode.          |
 
-!join
-  Description: Invite the current character to this channel.
-  Usage: `!join`
-
-!leave
-  Description: Remove the current character from this channel.
-  Usage: `!leave`
-
-!char <character_id>
-  Description: Change the character for this session.
-  Usage: `!char example`
-
-!debug
-  Description: Toggle debug mode. When ON, internal event logs are printed to the console.
-  Usage: `!debug`
-
-!dump (for debugging)
-  Description: Display the session’s memory state (including chat history).
-  Usage: `!dump`
 💡 Debug commands (e.g., `!dump`) are only available if you define `DEBUG_MODE=1` in your .env file.
-
 
 ---
 
