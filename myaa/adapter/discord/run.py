@@ -4,7 +4,12 @@ import discord
 from discord.ext import commands
 
 from myaa.src.session_manager import SessionManager
-from myaa.src.graph_setup import stream_chat, stream_chat_debug, list_graph_states
+from myaa.src.graph_setup import (
+    stream_chat,
+    stream_chat_debug,
+    list_graph_states,
+    default_persona_id,
+)
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -15,8 +20,9 @@ session_mgr = SessionManager()
 
 
 class ChatService:
-    def __init__(self, session_mgr: SessionManager):
+    def __init__(self, session_mgr: SessionManager, default_persona):
         self.session_mgr = session_mgr
+        self.default_persona = default_persona
         self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
         self.joined_channels: set[int] = set()
@@ -33,7 +39,7 @@ class ChatService:
         self.char_bindings[session_key] = char_id
 
     def get_character(self, session_key: str) -> str:
-        return self.char_bindings.get(session_key, "example")
+        return self.char_bindings.get(session_key, self.default_persona)
 
     async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
         thread_id = self.session_mgr.resolve(session_key)
@@ -53,7 +59,7 @@ class ChatService:
         return list_graph_states(self.session_mgr)
 
 
-service = ChatService(session_mgr)
+service = ChatService(session_mgr, default_persona=default_persona_id)
 
 intents = discord.Intents.default()
 intents.message_content = True

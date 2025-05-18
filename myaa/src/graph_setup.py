@@ -27,6 +27,7 @@ if os.path.exists(persona_file):
         persona_configs = yaml.safe_load(f)
 else:
     persona_configs = {}
+default_persona_id = persona_configs.get("default_persona", "example")
 
 
 # ---------------------------------------------------------------------------
