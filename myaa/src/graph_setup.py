@@ -20,8 +20,8 @@ from langchain.schema import SystemMessage
 load_dotenv()
 llm = init_chat_model(os.environ["GEMINI_MODEL"])
 
-
-persona_file = os.path.join(os.path.dirname(__file__), "personas.yaml")
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+persona_file = os.path.join(root_dir, "personas.yaml")
 if os.path.exists(persona_file):
     with open(persona_file, encoding="utf-8") as f:
         persona_configs = yaml.safe_load(f)
@@ -56,11 +56,10 @@ graph_builder = StateGraph(ChatState)
 
 
 def chatbot(state: ChatState):
-    # persona_id を使ったシステムメッセージを先頭に挿入
     pid = state["persona_id"]
     config = persona_configs.get(pid, {})
     name = config.get("name", pid)
-    desc = config.get("description", "You are a sample assistant character.")
+    desc = config.get("description", pid)
     system_msg = SystemMessage(content=f"あなたはキャラクター『{name}』です。\n{desc}")
     history = [
         m
