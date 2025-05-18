@@ -99,6 +99,9 @@ async def leave(ctx: commands.Context):
 
 @bot.command()
 async def debug(ctx: commands.Context):
+    if os.getenv("DEBUG_MODE") != "1":
+        await ctx.send("⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it.")
+        return
     key = make_session_key(ctx)
     new_state = service.toggle_debug(key)
     await ctx.send(f"🔧 Debug mode: {'ON' if new_state else 'OFF'}")
