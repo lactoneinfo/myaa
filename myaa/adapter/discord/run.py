@@ -3,17 +3,14 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
-# 依存モジュール（疎結合のチャットサービスとセッション管理）
 from myaa.src.session_manager import SessionManager
 from myaa.src.graph_setup import stream_chat, stream_chat_debug, list_graph_states
-
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN が設定されていません。")
 
-# セッション管理とチャットサービス
 session_mgr = SessionManager()
 
 
@@ -22,6 +19,7 @@ class ChatService:
         self.session_mgr = session_mgr
         self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
+        self.joined_channels: set[int] = set()
 
     def toggle_debug(self, session_key: str) -> bool:
         current = self.debug_map.get(session_key, False)
@@ -67,10 +65,28 @@ async def on_ready():
     print(f"Logged in as {user} (ID: {user.id})")
 
 
-def make_session_key(ctx: commands.Context) -> str:
-    channel_id = ctx.channel.id
-    thread_id = channel_id
-    return f"{channel_id}:{thread_id}"
+def make_session_key(ctx_or_msg) -> str:
+    if isinstance(ctx_or_msg, discord.Message):
+        cid = ctx_or_msg.channel.id
+        return f"{cid}:{cid}"
+    channel_id = ctx_or_msg.channel.id
+    return f"{channel_id}:{channel_id}"
+
+
+@bot.command()
+async def join(ctx: commands.Context):
+    key = make_session_key(ctx)
+    char_id = service.get_character(key)
+    service.joined_channels.add(ctx.channel.id)
+    await ctx.send(f"✅ {char_id} がログインしました。")
+
+
+@bot.command()
+async def leave(ctx: commands.Context):
+    key = make_session_key(ctx)
+    char_id = service.get_character(key)
+    service.joined_channels.discard(ctx.channel.id)
+    await ctx.send(f"👋 {char_id} が退出しました。")
 
 
 @bot.command()
@@ -105,6 +121,21 @@ async def dump(ctx: commands.Context):
         dump_text = dump_text[:1900] + "\n…（省略）"
     await ctx.send(f"```{dump_text}```")
 
+
+@bot.event
+async def on_message(msg: discord.Message):
+    await bot.process_commands(msg)
+    if msg.author.bot:
+        return
+    if msg.content.startswith("!"):
+        return
+    if msg.channel.id not in service.joined_channels:
+        return
+    session_key = make_session_key(msg)
+    user_text = msg.content
+    reply = await service.chat(session_key, user_text)
+    if reply:
+        await msg.channel.send(reply)
 
 def entrypoint():
     assert TOKEN is not None
