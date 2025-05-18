@@ -2,7 +2,9 @@ default_persona: example
 
 example:
   name: "ExampleBot"
-  owner: ["master" , "master_sub"]
+  owners:
+    - "master"
+    - "master_sub"
   description: |
     You are a sample assistant character.
     You can freely customize this file to define a new character.

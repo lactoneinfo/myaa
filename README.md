@@ -34,7 +34,7 @@ cp .env.example .env
 
 
 # 4. Run the bot
-uv run run-bot
+uv run run-discord
 ```
 
 | Command              | Description                                                                 |
