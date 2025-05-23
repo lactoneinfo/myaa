@@ -18,7 +18,19 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage
 # 1. ENV + LLM
 # ---------------------------------------------------------------------------
 load_dotenv()
-llm = init_chat_model(os.environ["GEMINI_MODEL"])
+def get_llm_model():
+    llm_provider = os.environ["LLM_PROVIDER"].lower()
+    if llm_provider == "google_genai":
+        return os.environ["GEMINI_MODEL"].lower()
+    elif llm_provider == "opeanai":
+        return os.environ["OPENAI_MODEL"].lower()
+    elif llm_provider == "anthropic":
+        return os.environ["ANTHROPIC_MODEL"]
+    else:
+        raise ValueError(f"Unsupported LLM provider: { llm_provider }")
+llm = init_chat_model(
+    get_llm_model(), model_provider=os.environ["LLM_PROVIDER"].lower()
+)
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 persona_file = os.path.join(root_dir, "personas.yaml")
