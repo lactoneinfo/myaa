@@ -14,6 +14,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 import yaml
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 
+from .tools.nature_cli import get_room_temp, set_ac, set_light
+
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
 # ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ def human_assistance(query: str) -> str:
 
 
 search_tool = TavilySearch(max_results=2)
-tools = [search_tool, human_assistance]
+tools = [search_tool, human_assistance, get_room_temp, set_ac, set_light]
 llm_with_tools = llm.bind_tools(tools)
 
 
