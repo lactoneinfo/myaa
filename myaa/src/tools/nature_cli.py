@@ -22,6 +22,12 @@ def _post(path: str, data: dict) -> None:
     r.raise_for_status()
 
 
+def _get(path: str) -> dict:
+    r = requests.get(f"{BASE}{path}", headers=HEADERS, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+
 @tool
 def get_room_temp() -> str:
     """
@@ -76,7 +82,8 @@ def set_ac(mode: str, temp: int | None = None, vol: str = "auto") -> str:
 def set_light(action: str) -> str:
     """
     照明を操作します。
-    - action: "on" / "off" / "night" / "bright-up" / "bright-down" など
+    - action: "on" / "off" / "night" / "bright-up" / "bright-down"
+    "bright-up", "bright-down" はそれぞれ照明強度を
     """
     if not LIGHT_ID:
         return "❌ LIGHT_ID が設定されていません"
@@ -85,5 +92,58 @@ def set_light(action: str) -> str:
         _post(f"/appliances/{LIGHT_ID}/light", {"button": action})
         state = {"on": "点灯", "off": "消灯"}.get(action, f"'{action}' を送信")
         return f"✅ 照明を{state}しました"
+    except requests.HTTPError as e:
+        return f"❌ API エラー: {e.response.text}"
+
+
+@tool
+def get_ac_status() -> str:
+    """
+    エアコンの現在設定（ON/OFF, モード, 設定温度, 風量）を取得します。
+    例: "ON / cool 26℃ / 風量auto"
+    """
+    if not AC_ID:
+        return "❌ AC_ID が設定されていません"
+
+    try:
+        ac = next((a for a in _get("/appliances") if a["id"] == AC_ID), None)
+        if not ac or not ac.get("settings"):
+            return "❌ エアコン設定が取得できません"
+
+        s = ac["settings"]
+        power = "OFF" if s.get("button") == "power-off" else "ON"
+        mode = s.get("mode", "unknown")  # cool / warm / dry
+        temp_raw = s.get("temp", "")
+        temp_txt = f"{temp_raw}℃" if temp_raw else "–"
+        vol = s.get("vol", "auto") or "auto"
+
+        return f"{power} / {mode} {temp_txt} / 風量{vol}"
+
+    except requests.HTTPError as e:
+        return f"❌ API エラー: {e.response.text}"
+
+
+@tool
+def get_light_status() -> str:
+    """
+    照明の現在状態（ON/OFF）を取得します。
+    例: "ON"
+    """
+    if not LIGHT_ID:
+        return "❌ LIGHT_ID が設定されていません"
+
+    try:
+        lamp = next((a for a in _get("/appliances") if a["id"] == LIGHT_ID), None)
+        state = lamp.get("light", {}).get("state") if lamp else None
+        if not state:
+            return "❌ 照明状態が取得できません"
+
+        power = state.get("power", "unknown").upper()  # on / off
+        bright = state.get("brightness") or state.get("last_button") or "?"
+        bright_txt = f"{bright}%" if bright.isdigit() else bright
+
+        # return f"{power} / {bright_txt}" bright_txt is always 100%
+        return f"{power}"
+
     except requests.HTTPError as e:
         return f"❌ API エラー: {e.response.text}"

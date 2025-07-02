@@ -16,7 +16,13 @@ from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .tools.nature_cli import get_room_temp, set_ac, set_light
+from .tools.nature_cli import (
+    get_room_temp,
+    set_ac,
+    set_light,
+    get_ac_status,
+    get_light_status,
+)
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
@@ -59,6 +65,8 @@ tools = [
     set_ac,
     set_light,
     get_current_time,
+    get_ac_status,
+    get_light_status,
 ]
 llm_with_tools = llm.bind_tools(tools)
 
