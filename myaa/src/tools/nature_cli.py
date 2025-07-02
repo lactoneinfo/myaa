@@ -83,7 +83,8 @@ def set_light(action: str) -> str:
     """
     照明を操作します。
     - action: "on" / "off" / "night" / "bright-up" / "bright-down"
-    "bright-up", "bright-down" はそれぞれ照明強度を
+    "bright-up", "bright-down" はそれぞれ照明強度を10%操作します
+    明るさを最大にするには "on" を使用します
     """
     if not LIGHT_ID:
         return "❌ LIGHT_ID が設定されていません"
