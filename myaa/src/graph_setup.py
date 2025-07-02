@@ -13,6 +13,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 import yaml
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .tools.nature_cli import get_room_temp, set_ac, set_light
 
@@ -42,8 +44,22 @@ def human_assistance(query: str) -> str:
     return human_response["data"]
 
 
+@tool
+def get_current_time() -> str:
+    """現在の日時を日本標準時（JST）で取得します。"""
+    jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+    return jst_now.strftime("%Y-%m-%d %H:%M:%S (JST)")
+
+
 search_tool = TavilySearch(max_results=2)
-tools = [search_tool, human_assistance, get_room_temp, set_ac, set_light]
+tools = [
+    search_tool,
+    human_assistance,
+    get_room_temp,
+    set_ac,
+    set_light,
+    get_current_time,
+]
 llm_with_tools = llm.bind_tools(tools)
 
 
