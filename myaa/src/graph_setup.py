@@ -23,6 +23,7 @@ from .tools.nature_cli import (
     get_ac_status,
     get_light_status,
 )
+from .tools.user_db import get_user_memory, save_user_memory, _UserDBClient
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
@@ -67,6 +68,8 @@ tools = [
     get_current_time,
     get_ac_status,
     get_light_status,
+    get_user_memory,
+    save_user_memory,
 ]
 llm_with_tools = llm.bind_tools(tools)
 
@@ -82,7 +85,7 @@ class ChatState(TypedDict):
 graph_builder = StateGraph(ChatState)
 
 
-def chatbot(state: ChatState):
+async def chatbot(state: ChatState):
     pid = state["persona_id"]
     config = persona_configs.get(pid, {})
     name = config.get("name", pid)
@@ -91,16 +94,52 @@ def chatbot(state: ChatState):
     )
     owners_str = ", ".join(owners) if owners else None
     desc = config.get("description", pid)
-    system_msg = SystemMessage(
-        content=(
-            f"You are {name}. \n{desc}\n" + f"Your owner: {owners_str}.\n"
-            if owners_str
-            else ""
-            + "Human messages are read in the format 'name: content'.\n"
-            + "Please do not include the name in the reply, only output the message content.\n"
-        )
-    )
     history = state.get("messages", [])
+    speaker_name: str | None = None
+    for msg in reversed(history):
+        if isinstance(msg, HumanMessage):
+            speaker_name = msg.additional_kwargs.get("name", None)
+            break
+    speaker_name = speaker_name or "Unknown"
+
+    profile: str = ""
+    events: list = []
+    try:
+        user = await _UserDBClient.fetch_user(speaker_name)
+        call_name = user["call_name"]
+        style = user["style"]
+        affinity = user["affinity"]
+        profile = user.get("profile", "")
+        events = user.get("events", [])
+    except Exception:
+        call_name = speaker_name
+        style = "敬語"
+        affinity = 0
+
+    persona_block = f"You are {name}.\n{desc}\n" + (
+        f"Your owner: {owners_str}.\n" if owners_str else ""
+    )
+    guideline_block = (
+        "Human messages are read in the format 'name: content'.\n"
+        "Please do not include the name in the reply, only output the message content.\n"
+        "Please do not output more than 1000 characters in Japanese.\n"
+    )
+    interlocutor_block = (
+        f"Current interlocutor: {call_name} (style: {style}, affinity: {affinity}).\n"
+        f"Affinity is 10 for your best friend, 0 for a stranger, and -5 for the person you dislike the most."
+        f"Speak to them using {style} speech and keep consistency with their affinity level.\n"
+        f"Their profile: {profile}\n"
+    )
+    if events:
+        event_lines = [f"- [{e['eval']}] {e['summary']}" for e in events]
+        events_block = "Recent events:\n" + "\n".join(event_lines) + "\n"
+    else:
+        events_block = ""
+
+    system_msg = SystemMessage(
+        content=persona_block + guideline_block + interlocutor_block + events_block
+    )
+
     messages = [system_msg] + history
     raw = llm_with_tools.invoke(messages)
     ai_msg = None
@@ -139,8 +178,7 @@ async def stream_chat(thread_id: str, user_text: str, persona_id: str, speaker: 
         ],
         "persona_id": persona_id,
     }
-    events = compiled_graph.stream(payload, config, stream_mode="values")
-    for ev in events:
+    async for ev in compiled_graph.astream(payload, config, stream_mode="values"):
         if "messages" in ev:
             yield ev["messages"][-1].content
 
@@ -156,8 +194,7 @@ async def stream_chat_debug(
         ],
         "persona_id": persona_id,
     }
-    events = compiled_graph.stream(payload, config, stream_mode="debug")
-    for ev in events:
+    async for ev in compiled_graph.astream(payload, config, stream_mode="values"):
         print("🛠 EVENT:", ev)
 
         if "tool_calls" in ev:

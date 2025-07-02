@@ -18,6 +18,7 @@ dependencies = [
     "types-requests>=2.32.4.20250611",
     "types-pytz>=2025.2.0.20250516",
     "langchain-google-genai>=2.0.10",
+    "flask>=3.1.1",
 ]
 
 [project.optional-dependencies]
