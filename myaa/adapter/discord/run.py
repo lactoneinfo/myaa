@@ -1,8 +1,11 @@
+import datetime as dt
+import pytz
 import asyncio
 import os
 from dotenv import load_dotenv
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
+from typing import cast
 
 from myaa.src.session_manager import SessionManager
 from myaa.src.graph_setup import (
@@ -12,10 +15,12 @@ from myaa.src.graph_setup import (
     default_persona_id,
 )
 
+JST = pytz.timezone("Asia/Tokyo")
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN が設定されていません。")
+REMINDER_SPEAKER = "時報"
 
 session_mgr = SessionManager()
 
@@ -27,6 +32,7 @@ class ChatService:
         self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
         self.joined_channels: set[int] = set()
+        self.jihou_channels: set[int] = set()
 
     def toggle_debug(self, session_key: str) -> bool:
         current = self.debug_map.get(session_key, False)
@@ -67,11 +73,46 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+@tasks.loop(seconds=60)
+async def midnight_lights_off():
+    """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
+    now = dt.datetime.now(JST)
+
+    if not (now.hour == 0 and now.minute == 0):
+        return
+
+    for cid in list(service.jihou_channels):
+        ch_raw = bot.get_channel(cid)
+        if ch_raw is None:
+            service.jihou_channels.discard(cid)
+            continue
+
+        session_key = f"{cid}:{cid}"
+        prompt = (
+            "INSTRUCTION: 0時になりました。ツールを使用して部屋の照明を消灯してください。"
+            "\nキャラクターとして適当なコメントを添えてください。"
+        )
+        ch = cast(discord.abc.Messageable, ch_raw)
+        async with ch.typing():
+            reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
+
+        if reply:
+            await ch.send(reply)
+
+
+@midnight_lights_off.before_loop
+async def _wait_ready():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     user = bot.user
     assert user is not None, "User should be set in on_ready()"
     print(f"Logged in as {user} (ID: {user.id})")
+
+    if not midnight_lights_off.is_running():
+        midnight_lights_off.start()
 
 
 def make_session_key(ctx_or_msg) -> str:
@@ -118,6 +159,26 @@ async def char(ctx: commands.Context, character_id: str):
 
 
 @bot.command()
+async def jihou(ctx: commands.Context, mode: str | None = None):
+    """!jihou        → 0 時時報 ON
+    !jihou off    → OFF"""
+    cid = ctx.channel.id
+    if mode == "off":
+        service.jihou_channels.discard(cid)
+        await ctx.send("🔕 時報を停止しました")
+        return
+
+    if cid in service.joined_channels:
+        await ctx.send(
+            "⚠️ ここは !join 済みなので時報にできません（!leave してください）"
+        )
+        return
+
+    service.jihou_channels.add(cid)
+    await ctx.send("🔔 このチャンネルで毎日 0 時に消灯するよ！")
+
+
+@bot.command()
 async def dump(ctx: commands.Context):
     if os.getenv("DEBUG_MODE") != "1":
         await ctx.send(
@@ -135,7 +196,10 @@ async def on_message(msg: discord.Message):
     await bot.process_commands(msg)
     if msg.author == bot.user or msg.content.startswith("!"):
         return
-    if msg.channel.id not in service.joined_channels:
+    if (
+        msg.channel.id not in service.joined_channels
+        and msg.channel.id not in service.jihou_channels
+    ):
         return
     if msg.author.bot and msg.author != bot.user:
         await asyncio.sleep(2)

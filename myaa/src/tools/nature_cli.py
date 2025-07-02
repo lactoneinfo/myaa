@@ -1,7 +1,8 @@
 # ---------------------------------------------------------------------------
 # Nature Remo
 # ---------------------------------------------------------------------------
-import os, requests, json
+import os
+import requests
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 
@@ -10,14 +11,16 @@ load_dotenv()
 BASE = "https://api.nature.global/1"
 HEADERS = {"Authorization": f"Bearer {os.getenv('NATURE_REMO_TOKEN')}"}
 
-DEVICE_ID  = os.getenv("REMO_DEVICE_ID")   # Remo mini (温度センサー)
-AC_ID      = os.getenv("REMO_AC_ID")       # エアコン
-LIGHT_ID   = os.getenv("REMO_LIGHT_ID")    # 照明
+DEVICE_ID = os.getenv("REMO_DEVICE_ID")  # Remo mini (温度センサー)
+AC_ID = os.getenv("REMO_AC_ID")  # エアコン
+LIGHT_ID = os.getenv("REMO_LIGHT_ID")  # 照明
+
 
 def _post(path: str, data: dict) -> None:
     """内部ユーティリティ: POST リクエストを投げて 4xx/5xx なら例外を投げる。"""
     r = requests.post(f"{BASE}{path}", headers=HEADERS, data=data, timeout=10)
     r.raise_for_status()
+
 
 @tool
 def get_room_temp() -> str:
@@ -36,6 +39,7 @@ def get_room_temp() -> str:
 
     temp = device["newest_events"]["te"]["val"]
     return f"{temp:.1f}"
+
 
 @tool
 def set_ac(mode: str, temp: int | None = None, vol: str = "auto") -> str:
@@ -66,6 +70,7 @@ def set_ac(mode: str, temp: int | None = None, vol: str = "auto") -> str:
 
     except requests.HTTPError as e:
         return f"❌ API エラー: {e.response.text}"
+
 
 @tool
 def set_light(action: str) -> str:
