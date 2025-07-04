@@ -6,7 +6,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_tavily import TavilySearch  # type: ignore
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
@@ -15,6 +14,7 @@ import yaml
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import requests
 
 from .tools.nature_cli import (
     get_room_temp,
@@ -58,9 +58,66 @@ def get_current_time() -> str:
     return jst_now.strftime("%Y-%m-%d %H:%M:%S (JST)")
 
 
-search_tool = TavilySearch(max_results=2)
+@tool
+def web_search_with_perplexity(query: str) -> str:
+    """Perplexity API を用いて Web 検索を行い、要約（1〜2文）と引用 URL を返します。
+
+    Args:
+        query (str): 検索クエリ
+
+    Returns:
+        str: 検索結果の要約（最大 200 文字）と引用 URL（あれば）を改行区切りで返す。
+             エラー時はエラーメッセージを返す。
+    """
+    api_key = os.getenv("PERPLEXITY_API_KEY")
+    if not api_key:
+        return "❌ Perplexity APIキーが設定されていません"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "あなたは検索結果を活用してユーザーの質問に簡潔に答えるアシスタントです。"
+                    "返答は1〜2文、最大200文字で要点のみを伝えてください。"
+                ),
+            },
+            {"role": "user", "content": query},
+        ],
+        "temperature": 0,
+        "top_p": 0.9,
+        "return_related_questions": False,
+        "return_images": False,
+        "top_k": 3,
+        "stream": False,
+    }
+
+    try:
+        resp = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        citations = data.get("citations", [])
+        if citations:
+            urls = "\n".join(f"🔗 {url}" for url in citations)
+            return f"{content}\n\n{urls}"
+        return content
+    except Exception as e:
+        return f"❌ Perplexity APIエラー: {e}"
+
+
 tools = [
-    search_tool,
+    web_search_with_perplexity,
     human_assistance,
     get_room_temp,
     set_ac,
