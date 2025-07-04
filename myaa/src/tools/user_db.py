@@ -59,9 +59,8 @@ def get_user_sync(discord_name: str) -> Dict[str, Any]:
 
 @tool
 async def get_user_memory(discord_name: str) -> str:
-    """人物データサーバーから <discord_name> の情報を取得し、
-    JSON 文字列として返します。LLM がパースしやすいように
-    コンパクトな key のみに整形します。
+    """人物データサーバーから <discord_name> の情報を取得します。
+    主に好感度を調べたり人物の情報を調べる際に使用します。
 
     Args:
         discord_name: Discord の表示名
@@ -69,10 +68,10 @@ async def get_user_memory(discord_name: str) -> str:
     Returns:
         JSON 文字列 (例)
         {
-            "name": "ぽゃん",
-            "call": "ぽゃん",
-            "style": "タメ口",
-            "affinity": 2,
+            "name": 表示名 "ぽゃん",
+            "call": AI→User の呼び名 "マスター",
+            "style": 口調 "タメ口",
+            "affinity": AI→User 好感度,
             "info": "(100字以内の人物説明)",
             "events": [
                 {"eval": "Good", "summary": "楽しく雑談した"},

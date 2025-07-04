@@ -125,7 +125,7 @@ async def chatbot(state: ChatState):
         "Please do not output more than 1000 characters in Japanese.\n"
     )
     interlocutor_block = (
-        f"Current interlocutor: {call_name} (style: {style}, affinity: {affinity}).\n"
+        f"Current interlocutor: {call_name} (style: {style}, affinity(AI to User): {affinity}).\n"
         f"Affinity is 10 for your best friend, 0 for a stranger, and -5 for the person you dislike the most."
         f"Speak to them using {style} speech and keep consistency with their affinity level.\n"
         f"Their profile: {profile}\n"
