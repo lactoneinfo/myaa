@@ -135,6 +135,18 @@ async def join(ctx: commands.Context):
 async def leave(ctx: commands.Context):
     key = make_session_key(ctx)
     char_id = service.get_character(key)
+
+    prompt = (
+        "INSTRUCTION: ログアウトします。"
+        "save_user_memory を使用して、このセッションで会話した全ユーザー(AI自身を除く)の会話履歴を保存してください。\n"
+        "キャラクターとして適当なコメントを添えてください。"
+    )
+
+    async with ctx.channel.typing():
+        reply = await service.chat(key, prompt, speaker=char_id)
+    if reply:
+        await ctx.send(reply)
+
     service.joined_channels.discard(ctx.channel.id)
     await ctx.send(f"👋 {char_id} が退出しました。")
 

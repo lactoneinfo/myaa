@@ -140,8 +140,8 @@ def get_light_status() -> str:
             return "❌ 照明状態が取得できません"
 
         power = state.get("power", "unknown").upper()  # on / off
-        bright = state.get("brightness") or state.get("last_button") or "?"
-        bright_txt = f"{bright}%" if bright.isdigit() else bright
+        # bright = state.get("brightness") or state.get("last_button") or "?"
+        # bright_txt = f"{bright}%" if bright.isdigit() else bright
 
         # return f"{power} / {bright_txt}" bright_txt is always 100%
         return f"{power}"

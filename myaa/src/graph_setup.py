@@ -6,7 +6,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_tavily import TavilySearch  # type: ignore
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
@@ -15,6 +14,7 @@ import yaml
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import requests
 
 from .tools.nature_cli import (
     get_room_temp,
@@ -23,6 +23,7 @@ from .tools.nature_cli import (
     get_ac_status,
     get_light_status,
 )
+from .tools.user_db import get_user_memory, save_user_memory, _UserDBClient
 
 # ---------------------------------------------------------------------------
 # 1. ENV + LLM
@@ -57,9 +58,66 @@ def get_current_time() -> str:
     return jst_now.strftime("%Y-%m-%d %H:%M:%S (JST)")
 
 
-search_tool = TavilySearch(max_results=2)
+@tool
+def web_search_with_perplexity(query: str) -> str:
+    """Perplexity API を用いて Web 検索を行い、要約（1〜2文）と引用 URL を返します。
+
+    Args:
+        query (str): 検索クエリ
+
+    Returns:
+        str: 検索結果の要約（最大 200 文字）と引用 URL（あれば）を改行区切りで返す。
+             エラー時はエラーメッセージを返す。
+    """
+    api_key = os.getenv("PERPLEXITY_API_KEY")
+    if not api_key:
+        return "❌ Perplexity APIキーが設定されていません"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "あなたは検索結果を活用してユーザーの質問に簡潔に答えるアシスタントです。"
+                    "返答は1〜2文、最大200文字で要点のみを伝えてください。"
+                ),
+            },
+            {"role": "user", "content": query},
+        ],
+        "temperature": 0,
+        "top_p": 0.9,
+        "return_related_questions": False,
+        "return_images": False,
+        "top_k": 3,
+        "stream": False,
+    }
+
+    try:
+        resp = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        citations = data.get("citations", [])
+        if citations:
+            urls = "\n".join(f"🔗 {url}" for url in citations)
+            return f"{content}\n\n{urls}"
+        return content
+    except Exception as e:
+        return f"❌ Perplexity APIエラー: {e}"
+
+
 tools = [
-    search_tool,
+    web_search_with_perplexity,
     human_assistance,
     get_room_temp,
     set_ac,
@@ -67,6 +125,8 @@ tools = [
     get_current_time,
     get_ac_status,
     get_light_status,
+    get_user_memory,
+    save_user_memory,
 ]
 llm_with_tools = llm.bind_tools(tools)
 
@@ -82,7 +142,7 @@ class ChatState(TypedDict):
 graph_builder = StateGraph(ChatState)
 
 
-def chatbot(state: ChatState):
+async def chatbot(state: ChatState):
     pid = state["persona_id"]
     config = persona_configs.get(pid, {})
     name = config.get("name", pid)
@@ -91,16 +151,52 @@ def chatbot(state: ChatState):
     )
     owners_str = ", ".join(owners) if owners else None
     desc = config.get("description", pid)
-    system_msg = SystemMessage(
-        content=(
-            f"You are {name}. \n{desc}\n" + f"Your owner: {owners_str}.\n"
-            if owners_str
-            else ""
-            + "Human messages are read in the format 'name: content'.\n"
-            + "Please do not include the name in the reply, only output the message content.\n"
-        )
-    )
     history = state.get("messages", [])
+    speaker_name: str | None = None
+    for msg in reversed(history):
+        if isinstance(msg, HumanMessage):
+            speaker_name = msg.additional_kwargs.get("name", None)
+            break
+    speaker_name = speaker_name or "Unknown"
+
+    profile: str = ""
+    events: list = []
+    try:
+        user = await _UserDBClient.fetch_user(speaker_name)
+        call_name = user["call_name"]
+        style = user["style"]
+        affinity = user["affinity"]
+        profile = user.get("profile", "")
+        events = user.get("events", [])
+    except Exception:
+        call_name = speaker_name
+        style = "敬語"
+        affinity = 0
+
+    persona_block = f"You are {name}.\n{desc}\n" + (
+        f"Your owner: {owners_str}.\n" if owners_str else ""
+    )
+    guideline_block = (
+        "Human messages are read in the format 'name: content'.\n"
+        "Please do not include the name in the reply, only output the message content.\n"
+        "Please do not output more than 1000 characters in Japanese.\n"
+    )
+    interlocutor_block = (
+        f"Current interlocutor: {call_name} (style: {style}, affinity(AI to User): {affinity}).\n"
+        f"Affinity is 10 for your best friend, 0 for a stranger, and -5 for the person you dislike the most."
+        f"Speak to them using {style} speech and keep consistency with their affinity level.\n"
+        f"Their profile: {profile}\n"
+    )
+    if events:
+        event_lines = [f"- [{e['eval']}] {e['summary']}" for e in events]
+        events_block = "Recent events:\n" + "\n".join(event_lines) + "\n"
+    else:
+        events_block = ""
+
+    system_msg = SystemMessage(
+        content=persona_block + guideline_block + interlocutor_block + events_block
+    )
+
     messages = [system_msg] + history
     raw = llm_with_tools.invoke(messages)
     ai_msg = None
@@ -139,8 +235,7 @@ async def stream_chat(thread_id: str, user_text: str, persona_id: str, speaker: 
         ],
         "persona_id": persona_id,
     }
-    events = compiled_graph.stream(payload, config, stream_mode="values")
-    for ev in events:
+    async for ev in compiled_graph.astream(payload, config, stream_mode="values"):
         if "messages" in ev:
             yield ev["messages"][-1].content
 
@@ -156,8 +251,7 @@ async def stream_chat_debug(
         ],
         "persona_id": persona_id,
     }
-    events = compiled_graph.stream(payload, config, stream_mode="debug")
-    for ev in events:
+    async for ev in compiled_graph.astream(payload, config, stream_mode="values"):
         print("🛠 EVENT:", ev)
 
         if "tool_calls" in ev:
