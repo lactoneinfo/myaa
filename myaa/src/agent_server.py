@@ -2,6 +2,8 @@ import os
 from fastapi import FastAPI, WebSocket
 from pydantic import BaseModel
 import uvicorn
+import websockets
+import asyncio
 
 from myaa.src.session_manager import SessionManager
 from myaa.src.graph_setup import (
@@ -10,6 +12,8 @@ from myaa.src.graph_setup import (
     list_graph_states,
     default_persona_id,
 )
+
+BOT_WS_URL = "ws://127.0.0.1:8765"
 
 app = FastAPI()
 session_mgr = SessionManager()
@@ -75,6 +79,17 @@ async def chat_ws(ws: WebSocket):
 @app.get("/dump")
 async def dump_states():
     return {"text": list_graph_states(session_mgr)}
+
+
+async def trigger_bot():
+    async with websockets.connect(BOT_WS_URL) as ws:
+        await ws.send("Agent からのメッセージ")
+        print("[Agent] Trigger sent")
+
+
+@app.on_event("startup")
+async def _on_startup():
+    asyncio.create_task(trigger_bot())
 
 
 if __name__ == "__main__":

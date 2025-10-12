@@ -83,6 +83,38 @@ class ChatService:
         return await agent_chat_ws(session_key, user_text, speaker, persona_id, debug)
 
 
+async def bot_ws_handler(ws):
+    try:
+        async for raw in ws:
+            try:
+                ev = json.loads(raw)
+                text = ev.get("text") or ""
+                channel_id = ev.get("channel_id")
+            except Exception:
+                text = str(raw)
+                channel_id = None
+
+            target_cid = None
+            if channel_id is not None:
+                target_cid = int(channel_id)
+            elif service.jihou_channels:
+                target_cid = next(iter(service.jihou_channels))
+
+            if target_cid is not None:
+                ch_raw = bot.get_channel(target_cid)
+                if ch_raw:
+                    ch = cast(discord.abc.Messageable, ch_raw)
+                    await ch.send(f"{text}")
+    except Exception as e:
+        print(f"[Bot WS] error: {e}")
+
+
+async def start_bot_ws_server():
+    async with websockets.serve(bot_ws_handler, "0.0.0.0", 8765):
+        print("[Bot WS] listening on ws://0.0.0.0:8765")
+        await asyncio.Future()
+
+
 service = ChatService(default_persona=default_persona_id)
 
 intents = discord.Intents.default()
@@ -133,31 +165,6 @@ async def dispatch_chat_and_send(session_key: str, user_text: str, speaker: str)
                 await ch.send(reply)
     finally:
         stop_typing(session_key)
-
-
-# @tasks.loop(seconds=60)
-# async def midnight_lights_off():
-#     """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
-#     now = dt.datetime.now(JST)
-#     if not (now.hour == 0 and now.minute == 0):
-#         return
-
-#     for cid in list(service.jihou_channels):
-#         ch_raw = bot.get_channel(cid)
-#         if ch_raw is None:
-#             service.jihou_channels.discard(cid)
-#             continue
-
-#         session_key = f"{cid}:{cid}"
-#         prompt = (
-#             "INSTRUCTION: 0時になりました。ツールを使用して部屋の照明を消灯してください。"
-#             "\nキャラクターとして適当なコメントを添えてください。"
-#         )
-#         ch = cast(discord.abc.Messageable, ch_raw)
-#         async with ch.typing():
-#             reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
-#         if reply:
-#             await ch.send(reply)
 
 
 @bot.event
@@ -239,7 +246,7 @@ async def jihou(ctx: commands.Context, mode: str | None = None):
         return
 
     service.jihou_channels.add(cid)
-    await ctx.send("🔔 このチャンネルで毎日 0 時に消灯するよ！")
+    await ctx.send("🔔 時報を登録しました")
 
 
 @bot.event
@@ -263,4 +270,11 @@ async def on_message(msg: discord.Message):
 
 def entrypoint():
     assert TOKEN is not None
-    bot.run(TOKEN)
+
+    # bot.run(TOKEN)
+    async def main():
+        bot_task = asyncio.create_task(bot.start(TOKEN))
+        ws_task = asyncio.create_task(start_bot_ws_server())
+        await asyncio.gather(bot_task, ws_task)
+
+    asyncio.run(main())
