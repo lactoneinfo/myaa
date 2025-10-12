@@ -4,6 +4,8 @@ from pydantic import BaseModel
 import uvicorn
 import websockets
 import asyncio
+import datetime
+import pytz
 
 from myaa.src.session_manager import SessionManager
 from myaa.src.graph_setup import (
@@ -14,6 +16,7 @@ from myaa.src.graph_setup import (
 )
 
 BOT_WS_URL = "ws://127.0.0.1:8765"
+JST = pytz.timezone("Asia/Tokyo")
 
 app = FastAPI()
 session_mgr = SessionManager()
@@ -87,9 +90,21 @@ async def trigger_bot():
         print("[Agent] Trigger sent")
 
 
+async def send_time_every_5min():
+    while True:
+        try:
+            now = datetime.datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
+            async with websockets.connect(BOT_WS_URL, ping_interval=20) as ws:
+                await ws.send(f"[Agent 時刻] {now}")
+                print(f"[Agent] Sent time: {now}")
+        except Exception as e:
+            print(f"[Agent] Failed to send time: {e}")
+        await asyncio.sleep(300)
+
+
 @app.on_event("startup")
 async def _on_startup():
-    asyncio.create_task(trigger_bot())
+    asyncio.create_task(send_time_every_5min())
 
 
 if __name__ == "__main__":
