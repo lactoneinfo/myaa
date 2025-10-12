@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from pydantic import BaseModel
 import uvicorn
 
@@ -39,6 +39,37 @@ async def chat(req: ChatReq):
             print(d)
 
     return {"reply": last_reply, "session_key": req.session_key}
+
+
+@app.websocket("/chat_ws")
+async def chat_ws(ws: WebSocket):
+    await ws.accept()
+    try:
+        req = await ws.receive_json()
+        session_key = req["session_key"]
+        user_text = req["user_text"]
+        speaker = req["speaker"]
+        persona_id = req.get("persona_id") or default_persona_id
+        debug = bool(req.get("debug", False))
+
+        thread_id = session_mgr.resolve(session_key)
+
+        async for chunk in stream_chat(thread_id, user_text, persona_id, speaker):
+            await ws.send_json(
+                {"event": "token", "session_key": session_key, "delta": chunk}
+            )
+
+        if debug:
+            async for d in stream_chat_debug(thread_id, user_text, persona_id, speaker):
+                await ws.send_json(
+                    {"event": "debug", "session_key": session_key, "delta": d}
+                )
+
+        await ws.send_json({"event": "done", "session_key": session_key})
+    except Exception as e:
+        await ws.send_json({"event": "error", "message": str(e)})
+    finally:
+        await ws.close()
 
 
 @app.get("/dump")

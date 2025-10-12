@@ -1,12 +1,12 @@
-import datetime as dt
 import pytz
 import asyncio
 import os
 from dotenv import load_dotenv
 import discord
-from discord.ext import commands, tasks
-from typing import cast
-import aiohttp
+from discord.ext import commands
+from typing import cast, Any
+import json
+import websockets
 
 from myaa.src.graph_setup import default_persona_id
 
@@ -19,34 +19,40 @@ REMINDER_SPEAKER = "時報"
 
 AGENT_HOST = os.getenv("AGENT_HOST", "127.0.0.1")
 AGENT_PORT = os.getenv("AGENT_PORT", "8000")
-AGENT_HTTP = f"http://{AGENT_HOST}:{AGENT_PORT}"
+AGENT_WS = f"ws://{AGENT_HOST}:{AGENT_PORT}/chat_ws"
 
 
-async def agent_chat_http(
+async def agent_chat_ws(
     session_key: str, user_text: str, speaker: str, persona_id: str, debug: bool
-) -> dict | None:
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(
-            f"{AGENT_HTTP}/chat",
-            json={
-                "session_key": session_key,
-                "user_text": user_text,
-                "speaker": speaker,
-                "persona_id": persona_id,
-                "debug": debug,
-            },
-        ) as r:
-            r.raise_for_status()
-            res = await r.json()
-            return res
-
-
-async def agent_dump_http() -> str:
-    async with aiohttp.ClientSession() as sess:
-        async with sess.get(f"{AGENT_HTTP}/dump") as r:
-            r.raise_for_status()
-            data = await r.json()
-            return data.get("text", "")
+) -> dict:
+    last: str = ""
+    async with websockets.connect(AGENT_WS, ping_interval=20) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "session_key": session_key,
+                    "user_text": user_text,
+                    "speaker": speaker,
+                    "persona_id": persona_id,
+                    "debug": debug,
+                }
+            )
+        )
+        async for raw in ws:
+            if isinstance(raw, (bytes, bytearray)):
+                ev = json.loads(raw.decode("utf-8", "replace"))
+            else:
+                ev = json.loads(raw)
+            et = ev.get("event")
+            if et == "token":
+                last = ev.get("delta", "") or ""
+            elif et == "debug":
+                print(ev.get("delta", ""))
+            elif et == "done":
+                break
+            elif et == "error":
+                raise RuntimeError(ev.get("message", "ws error"))
+    return {"reply": last, "session_key": session_key}
 
 
 class ChatService:
@@ -74,10 +80,7 @@ class ChatService:
     async def chat(self, session_key: str, user_text: str, speaker: str) -> dict | None:
         debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
-        return await agent_chat_http(session_key, user_text, speaker, persona_id, debug)
-
-    async def dump(self) -> str:
-        return await agent_dump_http()
+        return await agent_chat_ws(session_key, user_text, speaker, persona_id, debug)
 
 
 service = ChatService(default_persona=default_persona_id)
@@ -87,7 +90,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 pending_typing: dict[
-    str, tuple[discord.abc.Messageable, asyncio.Event, asyncio.Task]
+    str, tuple[discord.abc.Messageable, asyncio.Event, asyncio.Task[Any]]
 ] = {}
 
 
@@ -101,7 +104,7 @@ def start_typing(session_key: str, ch: discord.abc.Messageable):
     if session_key in pending_typing:
         return
     stop_evt = asyncio.Event()
-    task = asyncio.create_task(_typing_runner(session_key))
+    task: asyncio.Task[Any] = asyncio.create_task(_typing_runner(session_key))
     pending_typing[session_key] = (ch, stop_evt, task)
 
 
@@ -132,34 +135,29 @@ async def dispatch_chat_and_send(session_key: str, user_text: str, speaker: str)
         stop_typing(session_key)
 
 
-@tasks.loop(seconds=60)
-async def midnight_lights_off():
-    """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
-    now = dt.datetime.now(JST)
-    if not (now.hour == 0 and now.minute == 0):
-        return
+# @tasks.loop(seconds=60)
+# async def midnight_lights_off():
+#     """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
+#     now = dt.datetime.now(JST)
+#     if not (now.hour == 0 and now.minute == 0):
+#         return
 
-    for cid in list(service.jihou_channels):
-        ch_raw = bot.get_channel(cid)
-        if ch_raw is None:
-            service.jihou_channels.discard(cid)
-            continue
+#     for cid in list(service.jihou_channels):
+#         ch_raw = bot.get_channel(cid)
+#         if ch_raw is None:
+#             service.jihou_channels.discard(cid)
+#             continue
 
-        session_key = f"{cid}:{cid}"
-        prompt = (
-            "INSTRUCTION: 0時になりました。ツールを使用して部屋の照明を消灯してください。"
-            "\nキャラクターとして適当なコメントを添えてください。"
-        )
-        ch = cast(discord.abc.Messageable, ch_raw)
-        async with ch.typing():
-            reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
-        if reply:
-            await ch.send(reply)
-
-
-@midnight_lights_off.before_loop
-async def _wait_ready():
-    await bot.wait_until_ready()
+#         session_key = f"{cid}:{cid}"
+#         prompt = (
+#             "INSTRUCTION: 0時になりました。ツールを使用して部屋の照明を消灯してください。"
+#             "\nキャラクターとして適当なコメントを添えてください。"
+#         )
+#         ch = cast(discord.abc.Messageable, ch_raw)
+#         async with ch.typing():
+#             reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
+#         if reply:
+#             await ch.send(reply)
 
 
 @bot.event
@@ -167,8 +165,6 @@ async def on_ready():
     user = bot.user
     assert user is not None, "User should be set in on_ready()"
     print(f"Logged in as {user} (ID: {user.id})")
-    if not midnight_lights_off.is_running():
-        midnight_lights_off.start()
 
 
 def make_session_key(ctx_or_msg) -> str:
@@ -244,19 +240,6 @@ async def jihou(ctx: commands.Context, mode: str | None = None):
 
     service.jihou_channels.add(cid)
     await ctx.send("🔔 このチャンネルで毎日 0 時に消灯するよ！")
-
-
-@bot.command()
-async def dump(ctx: commands.Context):
-    if os.getenv("DEBUG_MODE") != "1":
-        await ctx.send(
-            "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
-        )
-        return
-    dump_text = await service.dump()
-    if len(dump_text) > 1900:
-        dump_text = dump_text[:1900] + "\n…（省略）"
-    await ctx.send(f"```{dump_text}```")
 
 
 @bot.event
