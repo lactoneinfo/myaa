@@ -244,7 +244,9 @@ async def stream_assistant_first(thread_id: str, system_text: str, persona_id: s
     """A stream that initiates AI speech from system instructions without human speech."""
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     payload = {
-        "messages": [HumanMessage(content=system_text, additional_kwargs={"name": "system"})],
+        "messages": [
+            HumanMessage(content=system_text, additional_kwargs={"name": "system"})
+        ],
         "persona_id": persona_id,
     }
     async for ev in compiled_graph.astream(payload, config, stream_mode="values"):

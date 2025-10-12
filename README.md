@@ -42,10 +42,8 @@ uv run run-discord
 | `!join`              | Invite the current character to this channel.                              |
 | `!leave`             | Remove the current character from this channel.                            |
 | `!char <id>`         | Change the character for this session. Example: `!char example`            |
-| `!debug`             | Toggle debug mode. Requires `DEBUG_MODE=1` in `.env`.                      |
-| `!dump` (debug only) | Show memory state (e.g., chat history). Only works in debug mode.          |
+| `!jihou    `         | Register time announcements (experimental feature)                         |
 
-💡 Debug commands (e.g., `!dump`) are only available if you define `DEBUG_MODE=1` in your .env file.
 
 ---
 

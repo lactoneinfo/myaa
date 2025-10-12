@@ -14,7 +14,6 @@ import contextlib
 from myaa.src.session_manager import SessionManager
 from myaa.src.graph_setup import (
     stream_chat,
-    stream_chat_debug,
     stream_assistant_first,
     list_graph_states,
     default_persona_id,
@@ -35,7 +34,6 @@ class ChatReq(BaseModel):
     user_text: str
     speaker: str
     persona_id: str | None = None
-    debug: bool = False
 
 
 @app.websocket("/chat_ws")
@@ -61,7 +59,6 @@ async def chat_ws(ws: WebSocket):
         user_text = req["user_text"]
         speaker = req["speaker"]
         persona_id = req.get("persona_id") or default_persona_id
-        debug = bool(req.get("debug", False))
 
         thread_id = session_mgr.resolve(session_key)
 
@@ -69,12 +66,6 @@ async def chat_ws(ws: WebSocket):
             await ws.send_json(
                 {"event": "token", "session_key": session_key, "delta": chunk}
             )
-
-        if debug:
-            async for d in stream_chat_debug(thread_id, user_text, persona_id, speaker):
-                await ws.send_json(
-                    {"event": "debug", "session_key": session_key, "delta": d}
-                )
 
         await ws.send_json({"event": "done", "session_key": session_key})
 
@@ -94,7 +85,7 @@ async def dump_states():
 
 def seconds_until_next_7am_jst() -> float:
     now = datetime.datetime.now(JST)
-    target = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    target = now.replace(hour=22, minute=40, second=0, microsecond=0)
     if now >= target:
         target += datetime.timedelta(days=1)
     return (target - now).total_seconds()

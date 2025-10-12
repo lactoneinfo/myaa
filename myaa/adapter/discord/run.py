@@ -23,7 +23,7 @@ AGENT_WS = f"ws://{AGENT_HOST}:{AGENT_PORT}/chat_ws"
 
 
 async def agent_chat_ws(
-    session_key: str, user_text: str, speaker: str, persona_id: str, debug: bool
+    session_key: str, user_text: str, speaker: str, persona_id: str
 ) -> dict:
     last: str = ""
     async with websockets.connect(AGENT_WS, ping_interval=20) as ws:
@@ -34,7 +34,6 @@ async def agent_chat_ws(
                     "user_text": user_text,
                     "speaker": speaker,
                     "persona_id": persona_id,
-                    "debug": debug,
                 }
             )
         )
@@ -46,8 +45,6 @@ async def agent_chat_ws(
             et = ev.get("event")
             if et == "token":
                 last = ev.get("delta", "") or ""
-            elif et == "debug":
-                print(ev.get("delta", ""))
             elif et == "done":
                 break
             elif et == "error":
@@ -58,18 +55,9 @@ async def agent_chat_ws(
 class ChatService:
     def __init__(self, default_persona):
         self.default_persona = default_persona
-        self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
         self.joined_channels: set[int] = set()
         self.jihou_channels: set[int] = set()
-
-    def toggle_debug(self, session_key: str) -> bool:
-        current = self.debug_map.get(session_key, False)
-        self.debug_map[session_key] = not current
-        return not current
-
-    def get_debug(self, session_key: str) -> bool:
-        return self.debug_map.get(session_key, False)
 
     def bind_character(self, session_key: str, char_id: str):
         self.char_bindings[session_key] = char_id
@@ -78,9 +66,8 @@ class ChatService:
         return self.char_bindings.get(session_key, self.default_persona)
 
     async def chat(self, session_key: str, user_text: str, speaker: str) -> dict | None:
-        debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
-        return await agent_chat_ws(session_key, user_text, speaker, persona_id, debug)
+        return await agent_chat_ws(session_key, user_text, speaker, persona_id)
 
 
 async def bot_ws_handler(ws):
@@ -98,8 +85,6 @@ async def bot_ws_handler(ws):
             if et == "token":
                 sk = ev.get("session_key", sk)
                 last = ev.get("delta", "") or ""
-            elif et == "debug":
-                print(ev.get("delta", ""))
             elif et == "error":
                 print(f"[Bot WS] agent error: {ev.get('message')}")
             elif et == "done":
@@ -222,18 +207,6 @@ async def leave(ctx: commands.Context):
 
     service.joined_channels.discard(ctx.channel.id)
     await ctx.send(f"👋 {char_id} が退出しました。")
-
-
-@bot.command()
-async def debug(ctx: commands.Context):
-    if os.getenv("DEBUG_MODE") != "1":
-        await ctx.send(
-            "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
-        )
-        return
-    key = make_session_key(ctx)
-    new_state = service.toggle_debug(key)
-    await ctx.send(f"🔧 Debug mode: {'ON' if new_state else 'OFF'}")
 
 
 @bot.command(name="char")
