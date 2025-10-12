@@ -86,6 +86,51 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+pending_typing: dict[
+    str, tuple[discord.abc.Messageable, asyncio.Event, asyncio.Task]
+] = {}
+
+
+async def _typing_runner(session_key: str):
+    ch, stop_evt, _ = pending_typing[session_key]
+    async with ch.typing():
+        await stop_evt.wait()
+
+
+def start_typing(session_key: str, ch: discord.abc.Messageable):
+    if session_key in pending_typing:
+        return
+    stop_evt = asyncio.Event()
+    task = asyncio.create_task(_typing_runner(session_key))
+    pending_typing[session_key] = (ch, stop_evt, task)
+
+
+def stop_typing(session_key: str):
+    tpl = pending_typing.get(session_key)
+    if not tpl:
+        return
+    _, stop_evt, task = tpl
+    stop_evt.set()
+    pending_typing.pop(session_key, None)
+
+
+async def dispatch_chat_and_send(session_key: str, user_text: str, speaker: str):
+    try:
+        res = await service.chat(session_key, user_text, speaker)
+        reply = res.get("reply") if res else None
+    except Exception as e:
+        reply = f"（エラー）{e}"
+
+    try:
+        cid = int(session_key.split(":")[0])
+        ch_raw = bot.get_channel(cid)
+        if ch_raw:
+            ch = cast(discord.abc.Messageable, ch_raw)
+            if reply:
+                await ch.send(reply)
+    finally:
+        stop_typing(session_key)
+
 
 @tasks.loop(seconds=60)
 async def midnight_lights_off():
@@ -229,10 +274,8 @@ async def on_message(msg: discord.Message):
     session_key = make_session_key(msg)
     user_text = msg.content
     speaker = msg.author.display_name
-    async with msg.channel.typing():
-        res = await service.chat(session_key, user_text, speaker)
-    if res and (reply := res.get("reply")):
-        await msg.channel.send(reply)
+    start_typing(session_key, msg.channel)
+    asyncio.create_task(dispatch_chat_and_send(session_key, user_text, speaker))
 
 
 def entrypoint():
