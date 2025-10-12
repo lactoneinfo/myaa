@@ -1,19 +1,14 @@
-import datetime as dt
 import pytz
 import asyncio
 import os
 from dotenv import load_dotenv
 import discord
-from discord.ext import commands, tasks
-from typing import cast
+from discord.ext import commands
+from typing import cast, Any
+import json
+import websockets
 
-from myaa.src.session_manager import SessionManager
-from myaa.src.graph_setup import (
-    stream_chat,
-    stream_chat_debug,
-    list_graph_states,
-    default_persona_id,
-)
+from myaa.src.graph_setup import default_persona_id
 
 JST = pytz.timezone("Asia/Tokyo")
 load_dotenv()
@@ -22,12 +17,46 @@ if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN が設定されていません。")
 REMINDER_SPEAKER = "時報"
 
-session_mgr = SessionManager()
+AGENT_HOST = os.getenv("AGENT_HOST", "127.0.0.1")
+AGENT_PORT = os.getenv("AGENT_PORT", "8000")
+AGENT_WS = f"ws://{AGENT_HOST}:{AGENT_PORT}/chat_ws"
+
+
+async def agent_chat_ws(
+    session_key: str, user_text: str, speaker: str, persona_id: str, debug: bool
+) -> dict:
+    last: str = ""
+    async with websockets.connect(AGENT_WS, ping_interval=20) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "session_key": session_key,
+                    "user_text": user_text,
+                    "speaker": speaker,
+                    "persona_id": persona_id,
+                    "debug": debug,
+                }
+            )
+        )
+        async for raw in ws:
+            if isinstance(raw, (bytes, bytearray)):
+                ev = json.loads(raw.decode("utf-8", "replace"))
+            else:
+                ev = json.loads(raw)
+            et = ev.get("event")
+            if et == "token":
+                last = ev.get("delta", "") or ""
+            elif et == "debug":
+                print(ev.get("delta", ""))
+            elif et == "done":
+                break
+            elif et == "error":
+                raise RuntimeError(ev.get("message", "ws error"))
+    return {"reply": last, "session_key": session_key}
 
 
 class ChatService:
-    def __init__(self, session_mgr: SessionManager, default_persona):
-        self.session_mgr = session_mgr
+    def __init__(self, default_persona):
         self.default_persona = default_persona
         self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
@@ -48,61 +77,94 @@ class ChatService:
     def get_character(self, session_key: str) -> str:
         return self.char_bindings.get(session_key, self.default_persona)
 
-    async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
-        thread_id = self.session_mgr.resolve(session_key)
+    async def chat(self, session_key: str, user_text: str, speaker: str) -> dict | None:
         debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
-        last_reply: str | None = None
-        async for chunk in stream_chat(thread_id, user_text, persona_id, speaker):
-            last_reply = chunk
-        if debug:
-            async for chunk in stream_chat_debug(
-                thread_id, user_text, persona_id, speaker
-            ):
-                print(chunk)
-        return last_reply
-
-    def dump(self) -> str:
-        return list_graph_states(self.session_mgr)
+        return await agent_chat_ws(session_key, user_text, speaker, persona_id, debug)
 
 
-service = ChatService(session_mgr, default_persona=default_persona_id)
+async def bot_ws_handler(ws):
+    try:
+        async for raw in ws:
+            try:
+                ev = json.loads(raw)
+                text = ev.get("text") or ""
+                channel_id = ev.get("channel_id")
+            except Exception:
+                text = str(raw)
+                channel_id = None
+
+            target_cid = None
+            if channel_id is not None:
+                target_cid = int(channel_id)
+            elif service.jihou_channels:
+                target_cid = next(iter(service.jihou_channels))
+
+            if target_cid is not None:
+                ch_raw = bot.get_channel(target_cid)
+                if ch_raw:
+                    ch = cast(discord.abc.Messageable, ch_raw)
+                    await ch.send(f"{text}")
+    except Exception as e:
+        print(f"[Bot WS] error: {e}")
+
+
+async def start_bot_ws_server():
+    async with websockets.serve(bot_ws_handler, "0.0.0.0", 8765):
+        print("[Bot WS] listening on ws://0.0.0.0:8765")
+        await asyncio.Future()
+
+
+service = ChatService(default_persona=default_persona_id)
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+pending_typing: dict[
+    str, tuple[discord.abc.Messageable, asyncio.Event, asyncio.Task[Any]]
+] = {}
 
-@tasks.loop(seconds=60)
-async def midnight_lights_off():
-    """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
-    now = dt.datetime.now(JST)
 
-    if not (now.hour == 0 and now.minute == 0):
+async def _typing_runner(session_key: str):
+    ch, stop_evt, _ = pending_typing[session_key]
+    async with ch.typing():
+        await stop_evt.wait()
+
+
+def start_typing(session_key: str, ch: discord.abc.Messageable):
+    if session_key in pending_typing:
         return
+    stop_evt = asyncio.Event()
+    task: asyncio.Task[Any] = asyncio.create_task(_typing_runner(session_key))
+    pending_typing[session_key] = (ch, stop_evt, task)
 
-    for cid in list(service.jihou_channels):
+
+def stop_typing(session_key: str):
+    tpl = pending_typing.get(session_key)
+    if not tpl:
+        return
+    _, stop_evt, task = tpl
+    stop_evt.set()
+    pending_typing.pop(session_key, None)
+
+
+async def dispatch_chat_and_send(session_key: str, user_text: str, speaker: str):
+    try:
+        res = await service.chat(session_key, user_text, speaker)
+        reply = res.get("reply") if res else None
+    except Exception as e:
+        reply = f"（エラー）{e}"
+
+    try:
+        cid = int(session_key.split(":")[0])
         ch_raw = bot.get_channel(cid)
-        if ch_raw is None:
-            service.jihou_channels.discard(cid)
-            continue
-
-        session_key = f"{cid}:{cid}"
-        prompt = (
-            "INSTRUCTION: 0時になりました。ツールを使用して部屋の照明を消灯してください。"
-            "\nキャラクターとして適当なコメントを添えてください。"
-        )
-        ch = cast(discord.abc.Messageable, ch_raw)
-        async with ch.typing():
-            reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
-
-        if reply:
-            await ch.send(reply)
-
-
-@midnight_lights_off.before_loop
-async def _wait_ready():
-    await bot.wait_until_ready()
+        if ch_raw:
+            ch = cast(discord.abc.Messageable, ch_raw)
+            if reply:
+                await ch.send(reply)
+    finally:
+        stop_typing(session_key)
 
 
 @bot.event
@@ -110,9 +172,6 @@ async def on_ready():
     user = bot.user
     assert user is not None, "User should be set in on_ready()"
     print(f"Logged in as {user} (ID: {user.id})")
-
-    if not midnight_lights_off.is_running():
-        midnight_lights_off.start()
 
 
 def make_session_key(ctx_or_msg) -> str:
@@ -143,8 +202,8 @@ async def leave(ctx: commands.Context):
     )
 
     async with ctx.channel.typing():
-        reply = await service.chat(key, prompt, speaker=char_id)
-    if reply:
+        res = await service.chat(key, prompt, speaker=char_id)
+    if res and (reply := res.get("reply")):
         await ctx.send(reply)
 
     service.joined_channels.discard(ctx.channel.id)
@@ -187,20 +246,7 @@ async def jihou(ctx: commands.Context, mode: str | None = None):
         return
 
     service.jihou_channels.add(cid)
-    await ctx.send("🔔 このチャンネルで毎日 0 時に消灯するよ！")
-
-
-@bot.command()
-async def dump(ctx: commands.Context):
-    if os.getenv("DEBUG_MODE") != "1":
-        await ctx.send(
-            "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
-        )
-        return
-    dump_text = service.dump()
-    if len(dump_text) > 1900:
-        dump_text = dump_text[:1900] + "\n…（省略）"
-    await ctx.send(f"```{dump_text}```")
+    await ctx.send("🔔 時報を登録しました")
 
 
 @bot.event
@@ -218,12 +264,17 @@ async def on_message(msg: discord.Message):
     session_key = make_session_key(msg)
     user_text = msg.content
     speaker = msg.author.display_name
-    async with msg.channel.typing():
-        reply = await service.chat(session_key, user_text, speaker)
-    if reply:
-        await msg.channel.send(reply)
+    start_typing(session_key, msg.channel)
+    asyncio.create_task(dispatch_chat_and_send(session_key, user_text, speaker))
 
 
 def entrypoint():
     assert TOKEN is not None
-    bot.run(TOKEN)
+
+    # bot.run(TOKEN)
+    async def main():
+        bot_task = asyncio.create_task(bot.start(TOKEN))
+        ws_task = asyncio.create_task(start_bot_ws_server())
+        await asyncio.gather(bot_task, ws_task)
+
+    asyncio.run(main())
