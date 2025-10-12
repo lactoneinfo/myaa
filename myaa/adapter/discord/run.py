@@ -24,7 +24,7 @@ AGENT_HTTP = f"http://{AGENT_HOST}:{AGENT_PORT}"
 
 async def agent_chat_http(
     session_key: str, user_text: str, speaker: str, persona_id: str, debug: bool
-) -> str | None:
+) -> dict | None:
     async with aiohttp.ClientSession() as sess:
         async with sess.post(
             f"{AGENT_HTTP}/chat",
@@ -37,8 +37,8 @@ async def agent_chat_http(
             },
         ) as r:
             r.raise_for_status()
-            data = await r.json()
-            return data.get("reply")
+            res = await r.json()
+            return res
 
 
 async def agent_dump_http() -> str:
@@ -71,7 +71,7 @@ class ChatService:
     def get_character(self, session_key: str) -> str:
         return self.char_bindings.get(session_key, self.default_persona)
 
-    async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
+    async def chat(self, session_key: str, user_text: str, speaker: str) -> dict | None:
         debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
         return await agent_chat_http(session_key, user_text, speaker, persona_id, debug)
@@ -154,8 +154,8 @@ async def leave(ctx: commands.Context):
     )
 
     async with ctx.channel.typing():
-        reply = await service.chat(key, prompt, speaker=char_id)
-    if reply:
+        res = await service.chat(key, prompt, speaker=char_id)
+    if res and (reply := res.get("reply")):
         await ctx.send(reply)
 
     service.joined_channels.discard(ctx.channel.id)
@@ -230,8 +230,8 @@ async def on_message(msg: discord.Message):
     user_text = msg.content
     speaker = msg.author.display_name
     async with msg.channel.typing():
-        reply = await service.chat(session_key, user_text, speaker)
-    if reply:
+        res = await service.chat(session_key, user_text, speaker)
+    if res and (reply := res.get("reply")):
         await msg.channel.send(reply)
 
 

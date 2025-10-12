@@ -38,7 +38,10 @@ async def chat(req: ChatReq):
         ):
             print(d)
 
-    return {"reply": last_reply}
+    return {
+        "reply": last_reply,
+        "session_key": req.session_key
+    }
 
 
 @app.get("/dump")
