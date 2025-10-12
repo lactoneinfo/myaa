@@ -37,45 +37,53 @@ def _entry_time(e) -> Optional[datetime]:
     return dt
 
 
-def fetch_new_last_24h(feeds: List[str]) -> List[Tuple[str, str, Optional[datetime]]]:
-    since = datetime.now(JST) - timedelta(days=1)
-    items: List[Tuple[str, str, Optional[datetime]]] = []
-    for url in feeds:
-        d = feedparser.parse(url)
-        for e in d.entries:
-            title = getattr(e, "title", "").strip()
-            link = getattr(e, "link", "").strip()
-            if not title or not link:
-                continue
-            ts = _entry_time(e)
-            if ts and ts >= since:
-                items.append((title, link, ts))
-    return items
+def _get_authors(e) -> list[str]:
+    out: list[str] = []
+    try:
+        if getattr(e, "authors", None):
+            for a in e.authors:
+                nm = getattr(a, "name", "") or str(a)
+                if nm and nm not in out:
+                    out.append(nm)
+        if not out:
+            nm = getattr(e, "author", "") or ""
+            if nm:
+                out.append(nm)
+    except Exception:
+        pass
+    return out
 
 
-def pick_titles_last_24h(opml_path: str, pick: int = 3):
-    """OPMLの全フィードから24h以内の新着を集め、総数とランダムpick件のタイトル配列を返す。"""
-    feeds = opml_feeds(opml_path)
-    items = fetch_new_last_24h(feeds)  # [(title, link, ts)]
-    total = len(items)
-    if total == 0:
-        return 0, []
-    k = min(pick, total)
-    sample = random.sample(items, k)
-    titles = [t for (t, _link, _ts) in sample]
-    return total, titles
+def _get_org(e) -> str:
+    for key in ("arxiv_affiliation", "dc_creator", "source", "source_title"):
+        v = getattr(e, key, None)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    ad = getattr(e, "author_detail", None)
+    if isinstance(ad, dict):
+        for k in ("affiliation", "organization", "org"):
+            v = ad.get(k) or ""
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return ""
 
 
-def fetch_all_last_24h(
-    opml_path: str,
-) -> List[Tuple[str, str, Optional[datetime], str]]:
+def fetch_all_last_24h_rich(opml_path: str) -> list[dict]:
     """
-    OPML内の全フィードから、24h以内の新着を (title, link, ts, summary) の配列で返す。
-    summary が無い場合は空文字にする。
+    24h以内の新着を、各要素が
+      {
+        "title": str,
+        "url": str,
+        "ts": datetime (JST) or None,
+        "abstract": str,
+        "authors": [str, ...],
+        "org": str
+      }
+    の辞書配列で返す（新しい順）。
     """
     feeds = opml_feeds(opml_path)
     since = datetime.now(JST) - timedelta(days=1)
-    items: List[Tuple[str, str, Optional[datetime], str]] = []
+    items: list[dict] = []
     for url in feeds:
         d = feedparser.parse(url)
         for e in d.entries:
@@ -86,8 +94,20 @@ def fetch_all_last_24h(
             ts = _entry_time(e)
             if not ts or ts < since:
                 continue
-            summary = getattr(e, "summary", "") or getattr(e, "description", "") or ""
-            summary = summary.strip()
-            items.append((title, link, ts, summary))
-    items.sort(key=lambda x: x[2] or datetime.min.replace(tzinfo=JST), reverse=True)
+            abstract = (
+                getattr(e, "summary", "") or getattr(e, "description", "") or ""
+            ).strip()
+            authors = _get_authors(e)
+            org = _get_org(e)
+            items.append(
+                {
+                    "title": title,
+                    "url": link,
+                    "ts": ts,
+                    "abstract": abstract,
+                    "authors": authors,
+                    "org": org,
+                }
+            )
+    items.sort(key=lambda x: x["ts"] or datetime.min.replace(tzinfo=JST), reverse=True)
     return items

@@ -18,7 +18,7 @@ from myaa.src.graph_setup import (
     list_graph_states,
     default_persona_id,
 )
-from myaa.src.tools.paper_watch import fetch_all_last_24h
+from myaa.src.tools.paper_watch import fetch_all_last_24h_rich
 
 BOT_WS_URL = "ws://127.0.0.1:8765"
 JST = pytz.timezone("Asia/Tokyo")
@@ -86,135 +86,135 @@ async def dump_states():
 
 def seconds_until_next_7am_jst() -> float:
     now = datetime.datetime.now(JST)
-    target = now.replace(hour=0, minute=25, second=0, microsecond=0)
+    target = now.replace(hour=1, minute=8, second=0, microsecond=0)
     if now >= target:
         target += datetime.timedelta(days=1)
     return (target - now).total_seconds()
 
 
-async def morning_greeting_loop():
-    while True:
-        if not jihou_active:
-            await jihou_event.wait()
+def next_7am_jst(now: datetime.datetime | None = None) -> datetime.datetime:
+    now = now or datetime.datetime.now(JST)
+    target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if now >= target:
+        target += datetime.timedelta(days=1)
+    return target
 
-        remain = seconds_until_next_7am_jst()
-        while remain > 0 and jihou_active:
-            dt = min(remain, 5)
-            await asyncio.sleep(dt)
-            remain -= dt
-        if not jihou_active or not jihou_session_key:
-            continue
 
-        now = datetime.datetime.now(JST).strftime("%Y-%m-%d %H:%M")
-        system_prompt = (
-            "INSTRUCTION: 朝の時報メッセージを1通だけ生成してください。\n"
-            f"- 現在時刻（JST）は {now} です。\n"
+def seconds_until(dt: datetime.datetime) -> float:
+    now = datetime.datetime.now(JST)
+    return max(0.0, (dt - now).total_seconds())
+
+
+async def _emit_ws_text(session_key: str, text: str):
+    async with websockets.connect(BOT_WS_URL, ping_interval=20) as ws:
+        await ws.send(
+            json.dumps({"event": "token", "session_key": session_key, "delta": text})
         )
-        try:
-            thread_id = session_mgr.resolve(jihou_session_key)
-            persona_id = default_persona_id
+        await ws.send(json.dumps({"event": "done", "session_key": session_key}))
 
-            async with websockets.connect(BOT_WS_URL, ping_interval=20) as ws:
-                async for chunk in stream_assistant_first(
-                    thread_id, system_prompt, persona_id
-                ):
-                    if chunk:
-                        await ws.send(
-                            json.dumps(
-                                {
-                                    "event": "token",
-                                    "session_key": jihou_session_key,
-                                    "delta": chunk,
-                                }
-                            )
-                        )
-                await ws.send(
-                    json.dumps({"event": "done", "session_key": jihou_session_key})
+
+def build_greeting_instruction(now_txt: str) -> str:
+    return (
+        "INSTRUCTION: 時報の朝挨拶を1通だけ生成してください。\n"
+        f"- 現在時刻（JST）は {now_txt} です。\n"
+        "- 1～2文、合計120字以内。\n"
+        "- 季節や天気の軽い雑談を一言添え、直後に論文ニュースが始まることを告げてください。\n"
+    )
+
+
+def build_paper_instruction(i: int, n: int, item: dict) -> str:
+    title = item["title"]
+    url = item["url"]
+    abs_ = item["abstract"]
+    org = item.get("org") or "（所属不明）"
+    authors = ", ".join(item.get("authors") or []) or "（著者情報なし）"
+    return (
+        "INSTRUCTION: 論文ニュースを紹介してください。直前のメッセージから違和感なく接続してください。(例: 次のニュースです。等)"
+        f"全{n}報中の{i}報目\n"
+        "- 出力は以下の3つを必ず含めてください：\n"
+        "  - タイトル\n"
+        "  - URL\n"
+        "  - 要約（300字以内, 研究組織, 著者情報をなるべく含める, キャラクター設定, 口調を守る\n"
+        "===\n"
+        f"タイトル: {title}\n"
+        f"研究組織: {org}\n"
+        f"著者: {authors}\n"
+        f"要約素材（英語）: {abs_}\n"
+        f"URL: {url}\n"
+        "===\n"
+    )
+
+
+def build_closing_instruction(n: int) -> str:
+    return (
+        "INSTRUCTION: 朝の論文ニュースの締めの一文を1通だけ出力してください。\n"
+        f"- 今日は {n} 本紹介しました。\n"
+    )
+
+
+async def relay_stream_assistant_first(
+    session_key: str, instruction_text: str, persona_id: str | None = None
+):
+    thread_id = session_mgr.resolve(session_key)
+    persona = persona_id or default_persona_id
+    async with websockets.connect(BOT_WS_URL, ping_interval=20) as bot_ws:
+        async for chunk in stream_assistant_first(thread_id, instruction_text, persona):
+            if chunk:
+                await bot_ws.send(
+                    json.dumps(
+                        {"event": "token", "session_key": session_key, "delta": chunk}
+                    )
                 )
-        except Exception as e:
-            print(f"[Agent] greeting error: {e}")
-            await asyncio.sleep(60)
+        await bot_ws.send(json.dumps({"event": "done", "session_key": session_key}))
 
 
-async def morning_paper_loop():
+async def morning_paper_per_minute_loop():
     while True:
         if not jihou_active:
             await jihou_event.wait()
 
-        remain = seconds_until_next_7am_jst()
-        while remain > 0 and jihou_active:
-            dt = min(remain, 30)
-            await asyncio.sleep(dt)
-            remain -= dt
+        start_dt = next_7am_jst()
+        await asyncio.sleep(seconds_until(start_dt))
         if not jihou_active or not jihou_session_key:
             continue
 
         try:
             opml_path = os.getenv("PAPER_OPML_PATH", "").strip()
             if not opml_path:
-                system_prompt = (
-                    "INSTRUCTION: 朝の論文時報を1通だけ生成してください。"
-                    "PAPER_OPML_PATH が未設定のため、今日は論文収集ができなかったことを簡潔に伝えてください。"
+                await _emit_ws_text(
+                    jihou_session_key,
+                    "（お知らせ）PAPER_OPML_PATH が未設定のため、今日は論文収集ができませんでした。",
                 )
-            else:
-                items = fetch_all_last_24h(opml_path)
-                total = len(items)
+                continue
 
-                MAX_ITEMS = 30
-                use = items[:MAX_ITEMS]
+            items = fetch_all_last_24h_rich(opml_path)
+            MAX_ITEMS = 30
+            items = items[:MAX_ITEMS]
+            n = len(items)
 
-                lines = []
-                for title, link, ts, summary in use:
-                    when = ts.strftime("%Y-%m-%d %H:%M") if ts else ""
-                    lines.append(f"{when}\t{title}\t{summary}\t{link}")
-                payload = "\n".join(lines)
+            now_txt = datetime.datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+            greet_ins = build_greeting_instruction(now_txt)
+            await relay_stream_assistant_first(jihou_session_key, greet_ins)
 
-                now = datetime.datetime.now(JST).strftime("%Y-%m-%d %H:%M")
-                system_prompt = (
-                    "INSTRUCTION: 朝の論文ニュースを生成してください。\n"
-                    f"- 現在時刻（JST）は {now} です。\n"
-                    f"- 過去24時間に検出した論文は合計 {total} 件です。以下に最大 {len(use)} 件の生データを渡します。\n"
-                    "- それぞれについて、次の形式で**一行**ずつ出力してください：\n"
-                    "  タイトル｜日本語要約（100字以内）｜URL\n"
-                    "- 日本語要約は、与えた英語アブスト要約（summary）がある場合は**忠実に要約**、無い場合は見つからなかった旨を報告してください。\n"
-                    "- 箇条書きや番号は不要。記事ごとに改行で区切るだけにしてください。\n"
-                    "- 記事件数が多い場合でも、与えたデータ分はすべて出力してください（上限は既にこちらでかけています）。\n"
-                    "- 入力フォーマット：1行につき\n"
-                    "  <投稿日JST>\\t<英語タイトル>\\t<英語サマリー（空可）>\\t<URL>\n"
-                    "===\n"
-                    f"{payload}\n"
-                    "===\n"
-                )
+            for i, item in enumerate(items, start=1):
+                slot_dt = start_dt + datetime.timedelta(minutes=i)
+                await asyncio.sleep(seconds_until(slot_dt))
+                inst = build_paper_instruction(i, n, item)
+                await relay_stream_assistant_first(jihou_session_key, inst)
 
-            thread_id = session_mgr.resolve(jihou_session_key)
-            persona_id = default_persona_id
-            async with websockets.connect(BOT_WS_URL, ping_interval=20) as ws:
-                async for chunk in stream_assistant_first(
-                    thread_id, system_prompt, persona_id
-                ):
-                    if chunk:
-                        await ws.send(
-                            json.dumps(
-                                {
-                                    "event": "token",
-                                    "session_key": jihou_session_key,
-                                    "delta": chunk,
-                                }
-                            )
-                        )
-                await ws.send(
-                    json.dumps({"event": "done", "session_key": jihou_session_key})
-                )
+            end_dt = start_dt + datetime.timedelta(minutes=n + 1)
+            await asyncio.sleep(seconds_until(end_dt))
+            closing_ins = build_closing_instruction(n)
+            await relay_stream_assistant_first(jihou_session_key, closing_ins)
 
         except Exception as e:
-            print(f"[Agent] paper loop error: {e}")
+            print(f"[Agent] per-minute loop error: {e}")
             await asyncio.sleep(60)
 
 
 @app.on_event("startup")
 async def _on_startup():
-    # asyncio.create_task(morning_greeting_loop())
-    asyncio.create_task(morning_paper_loop())
+    asyncio.create_task(morning_paper_per_minute_loop())
 
 
 if __name__ == "__main__":
