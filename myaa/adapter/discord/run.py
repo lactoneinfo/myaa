@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-from typing import cast, Any
+from typing import cast, Any, Optional
 import json
 import websockets
 
@@ -85,26 +85,40 @@ class ChatService:
 
 async def bot_ws_handler(ws):
     try:
+        last: str = ""
+        sk: Optional[str] = None
+
         async for raw in ws:
-            try:
+            if isinstance(raw, (bytes, bytearray)):
+                ev = json.loads(raw.decode("utf-8", "replace"))
+            else:
                 ev = json.loads(raw)
-                text = ev.get("text") or ""
-                channel_id = ev.get("channel_id")
-            except Exception:
-                text = str(raw)
-                channel_id = None
 
-            target_cid = None
-            if channel_id is not None:
-                target_cid = int(channel_id)
-            elif service.jihou_channels:
-                target_cid = next(iter(service.jihou_channels))
-
-            if target_cid is not None:
-                ch_raw = bot.get_channel(target_cid)
-                if ch_raw:
-                    ch = cast(discord.abc.Messageable, ch_raw)
-                    await ch.send(f"{text}")
+            et = ev.get("event")
+            if et == "token":
+                sk = ev.get("session_key", sk)
+                last = ev.get("delta", "") or ""
+            elif et == "debug":
+                print(ev.get("delta", ""))
+            elif et == "error":
+                print(f"[Bot WS] agent error: {ev.get('message')}")
+            elif et == "done":
+                if not sk:
+                    last = ""
+                text = (last or "").strip()
+                if text:
+                    sk = ev.get("session_key")
+                    if not sk:
+                        continue
+                    cid = int(sk.split(":")[0])
+                    ch_raw = bot.get_channel(cid)
+                    if ch_raw:
+                        ch = cast(discord.abc.Messageable, ch_raw)
+                        await ch.send(text)
+                last = ""
+                sk = None
+            else:
+                continue
     except Exception as e:
         print(f"[Bot WS] error: {e}")
 
@@ -231,12 +245,12 @@ async def char(ctx: commands.Context, character_id: str):
 
 @bot.command()
 async def jihou(ctx: commands.Context, mode: str | None = None):
-    """!jihou        → 0 時時報 ON
-    !jihou off    → OFF"""
     cid = ctx.channel.id
     if mode == "off":
         service.jihou_channels.discard(cid)
         await ctx.send("🔕 時報を停止しました")
+        async with websockets.connect(AGENT_WS, ping_interval=20) as ws:
+            await ws.send(json.dumps({"event": "jihou_unregister"}))
         return
 
     if cid in service.joined_channels:
@@ -247,6 +261,12 @@ async def jihou(ctx: commands.Context, mode: str | None = None):
 
     service.jihou_channels.add(cid)
     await ctx.send("🔔 時報を登録しました")
+
+    session_key = f"{cid}:{cid}"
+    async with websockets.connect(AGENT_WS, ping_interval=20) as ws:
+        await ws.send(
+            json.dumps({"event": "jihou_register", "session_key": session_key})
+        )
 
 
 @bot.event
@@ -271,7 +291,6 @@ async def on_message(msg: discord.Message):
 def entrypoint():
     assert TOKEN is not None
 
-    # bot.run(TOKEN)
     async def main():
         bot_task = asyncio.create_task(bot.start(TOKEN))
         ws_task = asyncio.create_task(start_bot_ws_server())

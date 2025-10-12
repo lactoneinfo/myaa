@@ -240,6 +240,18 @@ async def stream_chat(thread_id: str, user_text: str, persona_id: str, speaker: 
             yield ev["messages"][-1].content
 
 
+async def stream_assistant_first(thread_id: str, system_text: str, persona_id: str):
+    """A stream that initiates AI speech from system instructions without human speech."""
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    payload = {
+        "messages": [HumanMessage(content=system_text)],
+        "persona_id": persona_id,
+    }
+    async for ev in compiled_graph.astream(payload, config, stream_mode="values"):
+        if "messages" in ev:
+            yield ev["messages"][-1].content
+
+
 async def stream_chat_debug(
     thread_id: str, user_text: str, persona_id: str, speaker: str
 ):
