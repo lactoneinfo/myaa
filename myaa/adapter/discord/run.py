@@ -6,14 +6,9 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands, tasks
 from typing import cast
+import aiohttp
 
-from myaa.src.session_manager import SessionManager
-from myaa.src.graph_setup import (
-    stream_chat,
-    stream_chat_debug,
-    list_graph_states,
-    default_persona_id,
-)
+from myaa.src.graph_setup import default_persona_id
 
 JST = pytz.timezone("Asia/Tokyo")
 load_dotenv()
@@ -22,12 +17,40 @@ if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN が設定されていません。")
 REMINDER_SPEAKER = "時報"
 
-session_mgr = SessionManager()
+AGENT_HOST = os.getenv("AGENT_HOST", "127.0.0.1")
+AGENT_PORT = os.getenv("AGENT_PORT", "8000")
+AGENT_HTTP = f"http://{AGENT_HOST}:{AGENT_PORT}"
+
+
+async def agent_chat_http(
+    session_key: str, user_text: str, speaker: str, persona_id: str, debug: bool
+) -> str | None:
+    async with aiohttp.ClientSession() as sess:
+        async with sess.post(
+            f"{AGENT_HTTP}/chat",
+            json={
+                "session_key": session_key,
+                "user_text": user_text,
+                "speaker": speaker,
+                "persona_id": persona_id,
+                "debug": debug,
+            },
+        ) as r:
+            r.raise_for_status()
+            data = await r.json()
+            return data.get("reply")
+
+
+async def agent_dump_http() -> str:
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(f"{AGENT_HTTP}/dump") as r:
+            r.raise_for_status()
+            data = await r.json()
+            return data.get("text", "")
 
 
 class ChatService:
-    def __init__(self, session_mgr: SessionManager, default_persona):
-        self.session_mgr = session_mgr
+    def __init__(self, default_persona):
         self.default_persona = default_persona
         self.debug_map: dict[str, bool] = {}
         self.char_bindings: dict[str, str] = {}
@@ -49,24 +72,15 @@ class ChatService:
         return self.char_bindings.get(session_key, self.default_persona)
 
     async def chat(self, session_key: str, user_text: str, speaker: str) -> str | None:
-        thread_id = self.session_mgr.resolve(session_key)
         debug = self.get_debug(session_key)
         persona_id = self.get_character(session_key)
-        last_reply: str | None = None
-        async for chunk in stream_chat(thread_id, user_text, persona_id, speaker):
-            last_reply = chunk
-        if debug:
-            async for chunk in stream_chat_debug(
-                thread_id, user_text, persona_id, speaker
-            ):
-                print(chunk)
-        return last_reply
+        return await agent_chat_http(session_key, user_text, speaker, persona_id, debug)
 
-    def dump(self) -> str:
-        return list_graph_states(self.session_mgr)
+    async def dump(self) -> str:
+        return await agent_dump_http()
 
 
-service = ChatService(session_mgr, default_persona=default_persona_id)
+service = ChatService(default_persona=default_persona_id)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -77,7 +91,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def midnight_lights_off():
     """毎日 0:00 に時報チャンネルへ『消灯して』プロンプトを送る"""
     now = dt.datetime.now(JST)
-
     if not (now.hour == 0 and now.minute == 0):
         return
 
@@ -95,7 +108,6 @@ async def midnight_lights_off():
         ch = cast(discord.abc.Messageable, ch_raw)
         async with ch.typing():
             reply = await service.chat(session_key, prompt, speaker=REMINDER_SPEAKER)
-
         if reply:
             await ch.send(reply)
 
@@ -110,7 +122,6 @@ async def on_ready():
     user = bot.user
     assert user is not None, "User should be set in on_ready()"
     print(f"Logged in as {user} (ID: {user.id})")
-
     if not midnight_lights_off.is_running():
         midnight_lights_off.start()
 
@@ -197,7 +208,7 @@ async def dump(ctx: commands.Context):
             "⚠️ This command is disabled. Set DEBUG_MODE=1 in your .env to enable it."
         )
         return
-    dump_text = service.dump()
+    dump_text = await service.dump()
     if len(dump_text) > 1900:
         dump_text = dump_text[:1900] + "\n…（省略）"
     await ctx.send(f"```{dump_text}```")
